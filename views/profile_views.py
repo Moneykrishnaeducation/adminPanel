@@ -1,26 +1,44 @@
-
 import logging
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
-from adminPanel.authentication import BlacklistCheckingJWTAuthentication
-from rest_framework.decorators import authentication_classes
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.cache import never_cache
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.authentication import SessionAuthentication, TokenAuthentication
 
 logger = logging.getLogger(__name__)
 
+@csrf_exempt
+@never_cache
 @api_view(['GET'])
-@authentication_classes([BlacklistCheckingJWTAuthentication])
-@permission_classes([IsAuthenticated])
+@authentication_classes([JWTAuthentication, TokenAuthentication, SessionAuthentication])
+@permission_classes([AllowAny])
 def get_user_profile(request):
     """Get the authenticated user's profile data"""
     try:
         user = request.user
+        
+        # Check if user is authenticated - if not, try to authenticate from token
         if not user.is_authenticated:
-            logger.warning("[get_user_profile] User not authenticated")
+            # Try to extract token from cookies and authenticate
+            for auth_class in [JWTAuthentication(), TokenAuthentication(), SessionAuthentication()]:
+                try:
+                    auth_result = auth_class.authenticate(request)
+                    if auth_result:
+                        user, _ = auth_result
+                        request.user = user
+                        break
+                except Exception:
+                    continue
+        
+        # If still not authenticated, return 401
+        if not user.is_authenticated:
+            logger.warning("[get_user_profile] User not authenticated after auth attempt")
             return Response({'error': 'User not authenticated'}, status=401)
 
-        # Log successful authentication - no admin privilege check needed for profile endpoint
+        # Log successful authentication
         logger.debug(f"[get_user_profile] Authenticated user: {getattr(user, 'username', user.email)}")
 
         # Create a user-friendly name
@@ -46,6 +64,7 @@ def get_user_profile(request):
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
             'manager_admin_status': getattr(user, 'manager_admin_status', 'User'),
+            'is_approved_by_admin': getattr(user, 'is_approved_by_admin', False),
         }
         return Response(data)
 

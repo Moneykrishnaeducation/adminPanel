@@ -75,6 +75,7 @@ class RoleBasedAccessMiddleware:
             '/api/logout/',
             '/api/validate-token/',
             '/api/commissioning-profiles/',  # Commissioning profiles endpoint
+            '/api/profile/',  # Commissioning profiles endpoint
         ]
         if any(request.path.startswith(endpoint) for endpoint in api_endpoints):
             return self.get_response(request)

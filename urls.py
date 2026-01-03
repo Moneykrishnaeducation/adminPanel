@@ -141,7 +141,8 @@ from .views.views9 import (
     DocumentRequestsView, ApproveDocumentRequestView, RejectDocumentRequestView,
     PendingWithdrawalRequestsView, CryptoDetailsRequestsView, ApproveCryptoDetailsView, 
     RejectCryptoDetailsView, PendingDepositRequestsView, PendingUSDTTransactionsView,
-    ApproveTransactionView, RejectTransactionView
+    ApproveTransactionView, RejectTransactionView,
+    unapproved_users_list, ApproveUserView
 )
 from .views.views3 import (
     CommissionWithdrawView,
@@ -330,6 +331,7 @@ urlpatterns = [
     path('api/create-commissioning-profile/', CreateCommissioningProfileView.as_view(), name='api-create-commissioning-profile'),
     path('api/trading-groups/', get_available_trading_groups, name='api-trading-groups'),
     
+    path('api/profile/', get_user_profile, name='api-profile'),
     # User and Profile API endpoints - Enhanced for client connectivity
     path('api/user/profile/', get_user_profile, name='api-user-profile'),
     # path('api/user/<int:user_id>/', UserProfileView.as_view(), name='api-user-details'),
@@ -407,6 +409,8 @@ urlpatterns = [
     path('api/mt5/accounts/', trading_accounts_list, name='api-mt5-accounts'),
     path('api/mt5/status/', api_status_view, name='api-mt5-status'),
     
+    path('api/admin/unapproved-users/', unapproved_users_list, name='unapproved-users'),
+    path('api/admin/users/<int:id>/approve/', ApproveUserView.as_view(), name='approve-user'),
     # Admin requests and pending approvals API
     path('api/admin/ib-requests/', IBRequestsView.as_view(), name='ib-requests'),
     path('api/admin/ib-request/<int:id>/', UpdateIBRequestView.as_view(), name='update-ib-request'),

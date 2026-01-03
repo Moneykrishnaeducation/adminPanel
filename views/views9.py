@@ -6,6 +6,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.db.models import Q
 from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from adminPanel.models import CustomUser
+from adminPanel.serializers import UserSerializer
+
 # Unified Pending Requests API
 @csrf_exempt
 @api_view(['GET'])
@@ -1612,3 +1618,121 @@ def unified_pending_deposits_view(request):
 
     serializer = TransactionSerializer(all_deposits, many=True)
     return Response(serializer.data)
+# ==================== Unapproved Users Management ====================
+
+@csrf_exempt
+@api_view(['GET'])
+@authentication_classes([JWTAuthentication, TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def unapproved_users_list(request):
+    """
+    Get list of unapproved users (is_approved_by_admin = False)
+    Only admin can access this endpoint
+    """
+    try:
+        if not request.user.is_staff and 'Admin' not in getattr(request.user, 'manager_admin_status', ''):
+            return Response(
+                {'error': 'Only admins can access this endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get pagination parameters
+        page = request.GET.get('page', 1)
+        page_size = request.GET.get('pageSize', 10)
+        
+        try:
+            page = int(page)
+            page_size = int(page_size)
+        except (ValueError, TypeError):
+            page = 1
+            page_size = 10
+        
+        # Get unapproved users
+        unapproved_users = CustomUser.objects.filter(
+            is_approved_by_admin=False,
+            role='client'  # Only show client users
+        ).order_by('-date_joined')
+        
+        total = unapproved_users.count()
+        
+        # Pagination
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_users = unapproved_users[start:end]
+        
+        # Serialize data
+        serializer = UserSerializer(paginated_users, many=True)
+        
+        return Response({
+            'results': serializer.data,
+            'total': total,
+            'page': page,
+            'pageSize': page_size,
+            'totalPages': (total + page_size - 1) // page_size
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response(
+            {'error': f'Error fetching unapproved users: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+class ApproveUserView(APIView):
+    """
+    Approve or reject a user (set is_approved_by_admin)
+    """
+    authentication_classes = [JWTAuthentication, TokenAuthentication, SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    @method_decorator(csrf_exempt)
+    def patch(self, request, id):
+        """
+        PATCH /api/admin/users/<id>/approve/
+        Body: { "is_approved_by_admin": true/false }
+        """
+        try:
+            # Check if user is admin
+            if not request.user.is_staff and 'Admin' not in getattr(request.user, 'manager_admin_status', ''):
+                return Response(
+                    {'error': 'Only admins can approve users'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get the user
+            user = CustomUser.objects.get(id=id)
+            
+            # Get the approval status from request body
+            is_approved = request.data.get('is_approved_by_admin')
+            
+            if is_approved is None:
+                return Response(
+                    {'error': 'is_approved_by_admin field is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Update the user's approval status
+            user.is_approved_by_admin = bool(is_approved)
+            user.save()
+            
+            action = "approved" if is_approved else "rejected"
+            return Response(
+                {
+                    'message': f'User {action} successfully',
+                    'user_id': user.id,
+                    'email': user.email,
+                    'is_approved_by_admin': user.is_approved_by_admin
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except CustomUser.DoesNotExist:
+            return Response(
+                {'error': f'User with id {id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': f'Error updating user approval: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

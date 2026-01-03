@@ -746,6 +746,10 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         blank=False,
         help_text="Verification status for the user."
     )
+    is_approved_by_admin = models.BooleanField(
+        default=False,
+        help_text="Whether the user has been approved by admin to access the platform."
+    )
     # File upload methods
     def id_file(instance, filename):
         user_id = instance.user_id if instance.user_id else "unsaved"

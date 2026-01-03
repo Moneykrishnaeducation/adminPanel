@@ -13,6 +13,28 @@ def _is_admin_path(path: str) -> bool:
     p = path.lower()
     return ('/api/admin/' in p) or p.startswith('/admin-api') or ('/admin-api/' in p)
 
+def require_admin_approval(view_func):
+    """
+    Decorator to check if the authenticated user has been approved by admin.
+    Must be used after authentication check.
+    """
+    @wraps(view_func)
+    def _wrapped_view(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return Response({
+                "error": "Authentication credentials were not provided.",
+                "code": "not_authenticated"
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        if not request.user.is_approved_by_admin:
+            return Response({
+                "error": "Your account has not been approved by the admin yet. Please wait for admin approval to access this feature.",
+                "code": "user_not_approved"
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        return view_func(request, *args, **kwargs)
+    return _wrapped_view
+
 def api_auth_required(view_func):
     """
     Decorator for API views to return JSON responses for authentication failures
