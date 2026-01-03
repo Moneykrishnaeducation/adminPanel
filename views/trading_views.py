@@ -7,8 +7,8 @@ from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
 from ..roles import UserRole
-from adminPanel1.models import TradingAccount, CustomUser
-from adminPanel1.serializers import TradingAccountSerializer
+from adminPanel.models import TradingAccount, CustomUser
+from adminPanel.serializers import TradingAccountSerializer
 
 class TradingAccountsPagination(PageNumberPagination):
     page_size = 100
