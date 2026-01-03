@@ -694,6 +694,26 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     user_id = models.PositiveIntegerField(unique=True, editable=False, null=True)
     first_name = models.CharField(max_length=50)
     last_name = models.CharField(max_length=50)
+    # Legacy DB compatibility: some schemas contain an `old_commission` column
+    # Ensure it's present in the model with a safe default to avoid NOT NULL errors
+    old_commission = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        null=True,
+        blank=True,
+        help_text="Compatibility field for legacy commission values."
+    )
+    # Legacy DB compatibility: some schemas contain an `old_commission_withdrawal` column
+    # Add it here with safe defaults to avoid NOT NULL constraint failures on signup.
+    old_commission_withdrawal = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        null=True,
+        blank=True,
+        help_text="Compatibility field for legacy commission withdrawal values."
+    )
     dob = models.DateField(null=True, blank=True)  
     phone_number = models.CharField(max_length=100, blank=True)
     email = models.EmailField(unique=True)
@@ -1426,10 +1446,10 @@ class Transaction(models.Model):
         null=True,
         help_text="Destination trading account for internal transfers."
     )
-    migrated_to_old_withdrawal = models.BooleanField(
-        default=False,
-        help_text="Whether this transaction has been migrated to the old withdrawal system."
-    )
+    # migrated_to_old_withdrawal = models.BooleanField(
+    #     default=False,
+    #     help_text="Whether this transaction has been migrated to the old withdrawal system."
+    # )
 
     def document_file(instance, filename):
         tran_id = instance.id if instance.id else "unsaved"
