@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Accounts</title>
+</head>
+<body>
+    <h1>Trading Accounts</h1>
+    <div id="accounts"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, initiating user load...');
+            const API_BASE_URL = window.location.origin;
+            console.log('Using API base URL:', API_BASE_URL);
+
+            async function loadTradingAccounts() {
+                try {
+                    const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+                    if (!token) {
+                        throw new Error('No authentication token found');
+                    }
+
+                    console.log('Fetching trading accounts from:', `${API_BASE_URL}/trading-accounts/`);
+                    const response = await fetch(`${API_BASE_URL}/trading-accounts/`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        credentials: 'same-origin'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        throw new Error('Received non-JSON response from server');
+                    }
+
+                    const data = await response.json();
+                    console.log('Received data:', data);
+                    
+                    if (data.status === 'success' && data.accounts) {
+                        displayTradingAccounts(data.accounts);
+                    } else {
+                        throw new Error('Invalid response format');
+                    }
+                } catch (error) {
+                    console.error('Failed to load trading accounts:', error);
+                    document.getElementById('accounts').innerHTML = 
+                        `<p class="error">Failed to load trading accounts: ${error.message}</p>`;
+                }
+            }
+
+            function displayTradingAccounts(accounts) {
+                const accountsDiv = document.getElementById('accounts');
+                if (!accounts || accounts.length === 0) {
+                    accountsDiv.innerHTML = '<p>No trading accounts found</p>';
+                    return;
+                }
+
+                const accountsList = accounts.map(account => `
+                    <div class="account-card">
+                        <h3>Account ID: ${account.account_id}</h3>
+                        <p>Type: ${account.account_type}</p>
+                        <p>Balance: $${account.balance}</p>
+                        <p>Status: ${account.is_enabled ? 'Enabled' : 'Disabled'}</p>
+                    </div>
+                `).join('');
+
+                accountsDiv.innerHTML = accountsList;
+            }
+
+            loadTradingAccounts();
+        });
+    </script>
+</body>
+</html>

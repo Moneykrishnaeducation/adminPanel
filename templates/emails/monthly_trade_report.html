@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monthly Trading Report - {{ report_month }}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .email-container {
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #0591c9 0%, #05568b 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 300;
+        }
+        .header p {
+            margin: 5px 0 0 0;
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        .content {
+            padding: 30px 20px;
+        }
+        .greeting {
+            font-size: 18px;
+            color: #0591c9;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        .content p {
+            margin-bottom: 15px;
+            color: #555;
+        }
+        .report-summary {
+            background-color: #f8f9fa;
+            border-left: 4px solid #0591c9;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 0 5px 5px 0;
+        }
+        .report-summary h3 {
+            color: #0591c9;
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .summary-item:last-child {
+            border-bottom: none;
+        }
+        .summary-item span {
+            color: #666;
+        }
+        .summary-item strong {
+            color: #333;
+            font-weight: 600;
+        }
+        .attachment-info {
+            background-color: #e8f4f8;
+            border: 1px solid #bee5eb;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 25px 0;
+        }
+        .attachment-info h3 {
+            color: #0c5460;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .password-section {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .password-section h4 {
+            color: #856404;
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+        .password-highlight {
+            background-color: #ffecb3;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            font-size: 14px;
+            color: #5d4e75;
+            display: inline-block;
+            margin: 5px 0;
+        }
+        .cta-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            text-decoration: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            font-weight: 600;
+            margin: 20px 0;
+            transition: transform 0.2s;
+        }
+        .cta-button:hover {
+            transform: translateY(-2px);
+            color: white;
+            text-decoration: none;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 14px;
+            color: #6c757d;
+            border-top: 1px solid #dee2e6;
+        }
+        .footer a {
+            color: #28a745;
+            text-decoration: none;
+        }
+        .important-notice {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .security-info {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .contact-info {
+            background-color: #e2e3e5;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .contact-info h4 {
+            margin: 0 0 10px 0;
+            color: #495057;
+        }
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            .header {
+                padding: 20px 15px;
+            }
+            .content {
+                padding: 20px 15px;
+            }
+            .header h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1>📊 Monthly Trading Report</h1>
+            <p>{{ report_month }} • {{ company_name }}</p>
+        </div>
+        
+        <div class="content">
+            <div class="greeting">
+                Dear {{ user_name }},
+            </div>
+            
+            <p>We hope this email finds you well. Your monthly trading report for <strong>{{ report_month }}</strong> is now ready and attached to this email as a secure PDF document.</p>
+            
+            <div class="report-summary">
+                <h3>📈 Report Summary</h3>
+                <div class="summary-item">
+                    <span>Report Period:</span>
+                    <strong>{{ report_month }}</strong>
+                </div>
+                <div class="summary-item">
+                    <span>Total Trades:</span>
+                    <strong>{{ total_trades }}</strong>
+                </div>
+                <div class="summary-item">
+                    <span>Total Volume:</span>
+                    <strong>${{ total_volume|floatformat:2 }}</strong>
+                </div>
+                {% if total_commission > 0 %}
+                <div class="summary-item">
+                    <span>Commission Earned:</span>
+                    <strong>${{ total_commission|floatformat:2 }}</strong>
+                </div>
+                {% endif %}
+                <div class="summary-item">
+                    <span>Generated:</span>
+                    <strong>{{ generated_date }}</strong>
+                </div>
+            </div>
+            
+            <div class="attachment-info">
+                <h3>🔒 Secure PDF Report</h3>
+                <p>Your detailed trading report is attached as a password-protected PDF file. This ensures the security and confidentiality of your trading information.</p>
+                
+                <div class="password-section">
+                    <h4>🔑 PDF Password</h4>
+                    <p>To open your PDF report, use the following password:</p>
+                    <div class="password-highlight">
+                        {{ password_hint }}
+                    </div>
+                    <p><small><strong>Password Format:</strong> First 4 letters of your first name (lowercase) + first 4 digits of your birth year</small></p>
+                </div>
+            </div>
+            
+            <div class="security-info">
+                <strong>🛡️ Security Notice:</strong> This report contains sensitive financial information. Please keep your password secure and do not share this document with unauthorized individuals.
+            </div>
+            
+            <p>The attached PDF contains comprehensive details about your trading activity, including:</p>
+            <ul>
+                <li>Account summary and balance information</li>
+                <li>Detailed trade history with entry/exit points</li>
+                <li>Profit & Loss statements</li>
+                <li>Volume and performance metrics</li>
+                {% if total_commission > 0 %}
+                <li>Commission earnings breakdown</li>
+                {% endif %}
+            </ul>
+            
+            <div class="important-notice">
+                <strong>⚠️ Important:</strong> Please review your report carefully and cross-verify the information with your MT5 platform records. If you notice any discrepancies or have questions about your trading activity, please contact our support team immediately.
+            </div>
+            
+            <div style="text-align: center;">
+                <a href="{{ login_url }}" class="cta-button">
+                    🚀 Access Your Account
+                </a>
+            </div>
+            
+            <div class="contact-info">
+                <h4>📞 Need Help?</h4>
+                <p>If you have any questions about your report or need assistance accessing the PDF, our support team is here to help:</p>
+                <p>
+                    <strong>Email:</strong> <a href="mailto:{{ support_email }}">{{ support_email }}</a><br>
+                    <strong>Hours:</strong> Monday - Friday, 9:00 AM - 6:00 PM (EST)
+                </p>
+            </div>
+            
+            <p>Thank you for choosing {{ company_name }} for your trading needs. We appreciate your continued trust in our services.</p>
+            
+            <p style="margin-top: 30px;">
+                Best regards,<br>
+                <strong>The {{ company_name }} Team</strong>
+            </p>
+        </div>
+        
+        <div class="footer">
+            <p>
+                <strong>{{ company_name }}</strong><br>
+                Your Trusted Trading Partner<br>
+                <a href="{{ login_url }}">{{ login_url }}</a> | <a href="mailto:{{ support_email }}">{{ support_email }}</a>
+            </p>
+            <p style="margin-top: 15px; font-size: 12px; color: #868e96;">
+                This email was sent to {{ user_name }} regarding your {{ company_name }} trading account.<br>
+                Trading involves substantial risk and is not suitable for all investors. Past performance is not indicative of future results.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

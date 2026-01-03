@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Account Statement</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f4f4f4;
+      margin: 0;
+      padding: 0;
+      color: #000;
+    }
+
+    .statement {
+      max-width: 920px;
+      margin: 30px auto;
+      padding: 20px;
+      background: #fff;
+      box-shadow: 0 0 8px rgba(0,0,0,0.1);
+      border: 1px solid #ccc;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      background: #0591c9;
+      color: white;
+      padding: 15px;
+      border-radius: 5px 5px 0 0;
+    }
+
+    .title {
+      font-weight: bold;
+      font-size: 18px;
+    }
+
+    .account-no {
+      font-size: 14px;
+    }
+
+    .bank-logo {
+      font-weight: bold;
+      font-size: 20px;
+      font-style: italic;
+    }
+
+    .customer-info {
+      margin: 20px 0;
+    }
+
+    .dates p {
+      margin: 4px 0;
+    }
+
+    .section-box h3 {
+      background: #cfe5f1;
+      padding: 10px;
+      margin-top: 30px;
+      border-left: 5px solid #05568b;
+    }
+
+    .table-container {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0 20px;
+    }
+
+    th, td {
+      padding: 10px;
+      border: 1px solid #ddd;
+      font-size: 14px;
+      text-align: left;
+    }
+
+    .customer-info, .info-box {
+      background: #f4f4f4;
+      border: 1px solid #ccc;
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin-top: 25px;
+      font-size: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .info-box h4 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      color: #333;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+    }
+    .info-content{
+        font-size: 11px;
+    }
+
+    .info-box.warning {
+      background: #f5faff;
+      border-color: #b3c3f0;
+      text-align: center;
+    }
+
+    .info-box a {
+      color: #0056cc;
+      font-weight: bold;
+      text-decoration: none;
+    }
+
+    .info-box a:hover {
+      text-decoration: underline;
+    }
+    .subtitle{
+        text-align: center;
+        font-size: 16px;
+        font-weight: bold;
+        color: #3b01dd;
+        margin: 5px 0 20px;
+    }
+    .contact{
+        font-size: 12px;
+        color: #0a1dccd0;
+        margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="statement">
+    <header class="header">
+      <div>
+        <div class="title">{{ company_name }} Trading Statement</div>
+        <div class="account-no">{{ account_id }}</div>
+      </div>
+      <!-- <div class="bank-logo">IndusInd Bank</div> -->
+      {% if logo_path %}<img src="{{ logo_path }}" class="logo" alt="Company Logo">{% endif %}
+    </header>
+    
+    <section class="customer-info">
+        <div class="subtitle">{{ report_month }}</div>
+      <h2>{{ client_name }}</h2>
+        <p><strong>Account ID:</strong> {{ account_id }}</p>
+        <p><strong>Address :</strong> {{ address }}</p>
+        <p><strong>Phone:</strong> {{ phone }}</p>
+      <div class="dates">
+        <p><strong>Date:</strong> {{ report_date }}</p>
+      </div>
+    </section>
+
+    <section class="section-box">
+      <h3>Account Summary for Trading ID - {{ account_id }}</h3>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr><th>Account No.</th><th>Account Type</th><th>Starting Balance</th><th>Ending Balance</th><th>Total P/L</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>{{ account_id }}</td><td>{{ account_type }}</td><td>${{ starting_balance }}</td><td>${{ ending_balance }}</td><td>${{ total_pnl }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Trade History</h3>
+      <div class="table-container">
+        <table id="txn-table">
+          <thead>
+            <tr>
+                <th>Open Time</th>
+                <th>Close Time</th>
+                <th>Symbol</th>
+                <th>Type</th>
+                <th>Volume</th>
+                <th>P/L</th>
+                <th>Status</th>
+            </tr>
+          </thead>
+        <tbody>
+        {% if trades|length == 0 %}
+            <tr>
+                <td colspan="7" style="color:#b75a1c; font-weight:bold; background:#f3f8ff; text-align:center;">No trades found for this period.</td>
+            </tr>
+        {% else %}
+            {% for trade in trades %}
+            <tr>
+                <td>{{ trade.open_time }}</td>
+                <td>{{ trade.close_time }}</td>
+                <td>{{ trade.symbol }}</td>
+                <td>{{ trade.type }}</td>
+                <td>{{ trade.volume }}</td>
+                <td>{{ trade.profit }}</td>
+                <td>
+                  {% if trade.close_time == "Open" or not trade.close_time %}
+                    Open
+                  {% else %}
+                    Closed
+                  {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        {% endif %}
+        </tbody>
+        </table>
+      </div>
+
+      <div class="info-box warning">
+        <div class="info-content">
+            <h4>Important Notices</h4>
+            <p>This statement is confidential and intended only for the named recipient.
+          Trading involves substantial risk and is not suitable for all investors.
+        Past performance is not a guarantee of future results.
+          Please cross-verify this report with your MT5 platform records.
+          For any discrepancies or queries, reach out to our support team.</p>
+        </div>
+        <div class="contact">
+        <b>Contact Information:</b><br>
+        Email: 
+        <a href="mailto:support@vtindex.com">support@vtindex.com</a> | 
+        Website: 
+        <a href="https://www.vtindex.com" target="_blank">www.vtindex.com</a>
+        </div>
+
+      </div>
+    </section>
+  </div>
+
+</body>
+</html>

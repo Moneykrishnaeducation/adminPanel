@@ -1,0 +1,14 @@
+{
+    "demo_group": "KRSN\\1064",
+    "live_group": "KRSN\\1064",
+    "demo_leverage": 100,
+    "live_leverage": 100,
+    "default_deposit_demo": 10000,
+    "default_deposit_live": 0,
+    "working_groups": {
+        "demo": "KRSN\\1064",
+        "live": "KRSN\\1064",
+        "vip": "KRSN\\1064",
+        "prop": "KRSN\\1064"
+    }
+}
