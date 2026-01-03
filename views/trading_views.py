@@ -7,8 +7,8 @@ from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
 from ..roles import UserRole
-from adminPanel.models import TradingAccount, CustomUser
-from adminPanel.serializers import TradingAccountSerializer
+from adminPanel1.models import TradingAccount, CustomUser
+from adminPanel1.serializers import TradingAccountSerializer
 
 class TradingAccountsPagination(PageNumberPagination):
     page_size = 100
@@ -102,6 +102,14 @@ def get_trading_accounts(request, user_id):
             )
             
         trading_accounts = TradingAccount.objects.filter(user=user)
+
+        # Exclude demo accounts by default (frontend removes 'demo' from filter options)
+        trading_accounts = trading_accounts.exclude(account_type__iexact='demo')
+
+        # Allow filtering by account_type via query param (e.g. account_type=standard)
+        account_type = request.query_params.get('account_type', '').strip()
+        if account_type and account_type.lower() != 'all':
+            trading_accounts = trading_accounts.filter(account_type__iexact=account_type)
         
         # Log account details for debugging
         for account in trading_accounts:
@@ -172,6 +180,14 @@ def get_trading_accounts(request, user_id):
             )
             
         trading_accounts = TradingAccount.objects.filter(user=user)
+
+        # Exclude demo accounts by default
+        trading_accounts = trading_accounts.exclude(account_type__iexact='demo')
+
+        # Support backend filtering by account_type
+        account_type = request.query_params.get('account_type', '').strip()
+        if account_type and account_type.lower() != 'all':
+            trading_accounts = trading_accounts.filter(account_type__iexact=account_type)
         
         # Log account details for debugging
         for account in trading_accounts:
