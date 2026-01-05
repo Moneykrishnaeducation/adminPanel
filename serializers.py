@@ -889,7 +889,8 @@ class TicketSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Ticket
-        fields = '__all__'
+        fields = '_all_'
+        read_only_fields = ['created_by', 'created_at', 'updated_at', 'closed_by', 'closed_at', 'reopened_at']
         # Add user_id to the output fields if not already present
         extra_fields = ['user_id']
     

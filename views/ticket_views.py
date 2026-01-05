@@ -16,18 +16,39 @@ class TicketView(APIView):
             if request.user.manager_admin_status == 'Admin':
                 tickets = Ticket.objects.all()
             else:
-                # For managers, only show tickets from their assigned clients (created_by)
+                # For managers/clients, show:
+                # 1. Tickets they created themselves
+                # 2. Tickets created by their assigned clients
+                from django.db.models import Q
                 tickets = Ticket.objects.filter(
-                    created_by__created_by=request.user
+                    Q(created_by=request.user) |  # Tickets they created
+                    Q(created_by__created_by=request.user)  # Tickets from their clients
                 )
             
+            # Group tickets by status
+            grouped_tickets = {
+                'open': [],
+                'pending': [],
+                'closed': [],
+            }
+            
             serializer = TicketSerializer(tickets, many=True)
-            return Response(serializer.data)
+            for ticket_data in serializer.data:
+                status_key = ticket_data.get('status', 'open')
+                grouped_tickets[status_key].append(ticket_data)
+            
+            return Response(grouped_tickets)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def post(self, request):
-        serializer = TicketSerializer(data=request.data)
+        # Extract only subject and description, ignore extra fields like 'documents'
+        data = {
+            'subject': request.data.get('subject'),
+            'description': request.data.get('description'),
+        }
+        
+        serializer = TicketSerializer(data=data)
         if serializer.is_valid():
             ticket = serializer.save(created_by=request.user)
             
@@ -61,6 +82,50 @@ class TicketDetailView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
                 
+            serializer = TicketSerializer(ticket)
+            return Response(serializer.data)
+        except Ticket.DoesNotExist:
+            return Response(
+                {"error": "Ticket not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def patch(self, request, ticket_id):
+        try:
+            ticket = Ticket.objects.get(id=ticket_id)
+            
+            # Check manager permissions
+            if request.user.manager_admin_status == 'Manager':
+                # Manager can update only their own tickets or their clients' tickets
+                if ticket.created_by != request.user and getattr(ticket.created_by, 'created_by', None) != request.user:
+                    return Response(
+                        {"error": "You don't have permission to update this ticket"},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            
+            # Update status if provided
+            if 'status' in request.data:
+                new_status = request.data.get('status')
+                ticket.status = new_status
+                
+                # If closing the ticket, set closed_by and closed_at
+                if new_status == 'closed':
+                    ticket.closed_by = request.user
+                    ticket.closed_at = timezone.now()
+                
+                ticket.save()
+            
+            # Handle comment as a message if provided
+            if 'comment' in request.data and request.data.get('comment'):
+                from ..models import Message
+                Message.objects.create(
+                    ticket=ticket,
+                    sender=request.user,
+                    content=request.data.get('comment')
+                )
+            
             serializer = TicketSerializer(ticket)
             return Response(serializer.data)
         except Ticket.DoesNotExist:

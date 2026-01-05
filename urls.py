@@ -485,7 +485,8 @@ urlpatterns = [
     path('', include('adminPanel.admin_urls')),
     # ======================================
     # Tickets API (legacy frontend compatibility) - must be registered BEFORE the SPA catch-all
-    path('tickets/', TicketView.as_view(), name='tickets'),
+    path('api/tickets/', TicketView.as_view(), name='tickets'),
+    path('api/tickets/<int:ticket_id>/', TicketDetailView.as_view(), name='ticket-detail'),
     path('tickets/<int:ticket_id>/', TicketDetailView.as_view(), name='ticket-detail'),
 
     # Admin dashboard pages (HTML views, not API)
