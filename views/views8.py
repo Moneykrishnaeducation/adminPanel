@@ -674,12 +674,21 @@ class MAMManagerView(APIView):
 
 class MAMInvestorView(APIView):
     """
-    API View to handle MAM investor operations.
+    API View to handle MAM investor operations with pagination and search support.
+    Query parameters:
+    - page: Page number (default: 1)
+    - page_size: Number of results per page (default: 10)
+    - search: Search query to filter by account_id, account_name, or username
     """
     permission_classes = [OrPermission(IsAdmin, IsManager)]
 
     def get(self, request):
         try:
+            # Get pagination parameters
+            page = int(request.GET.get('page', 1))
+            page_size = int(request.GET.get('page_size', 10))
+            search_query = request.GET.get('search', '').strip()
+            
             if request.user.manager_admin_status == 'Admin':
                 investment_accounts = TradingAccount.objects.filter(account_type='mam_investment')
             else:
@@ -688,11 +697,38 @@ class MAMInvestorView(APIView):
                     account_type='mam_investment',
                     user__created_by=request.user
                 )
-
-            serializer = TradingAccountSerializer(investment_accounts, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+            # Apply search filter if provided
+            if search_query:
+                investment_accounts = investment_accounts.filter(
+                    Q(account_id__icontains=search_query) |
+                    Q(account_name__icontains=search_query) |
+                    Q(user__username__icontains=search_query) |
+                    Q(user__email__icontains=search_query)
+                )
+            
+            # Get total count before pagination
+            total_count = investment_accounts.count()
+            
+            # Apply pagination
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            paginated_accounts = investment_accounts[start_index:end_index]
+            
+            serializer = TradingAccountSerializer(paginated_accounts, many=True)
+            
+            return Response({
+                "count": total_count,
+                "results": serializer.data,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": (total_count + page_size - 1) // page_size
+            }, status=status.HTTP_200_OK)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                'error': str(e),
+                'results': []
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class MAMInvestmentDetailsView(APIView):
     """

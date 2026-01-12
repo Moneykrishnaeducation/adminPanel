@@ -20,16 +20,55 @@ logger = logging.getLogger(__name__)
 @permission_classes([IsAuthenticated])
 def list_mam_managers(request):
     """
-    List all users with MAM manager status.
+    List all users with MAM manager status with pagination and search support.
+    Query parameters:
+    - page: Page number (default: 1)
+    - page_size: Number of results per page (default: 10)
+    - search: Search query to filter by account_id, account_name, or username
     """
-    mam_accounts = TradingAccount.objects.filter(account_type__in=["mam", "mam_investment"])
-    serializer = TradingAccountSerializer(mam_accounts, many=True)
-    return Response({
-        "count": len(serializer.data),
-        "next": None,
-        "previous": None,
-        "results": serializer.data
-    })
+    try:
+        # Get pagination parameters
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 10))
+        search_query = request.GET.get('search', '').strip()
+        
+        # Start with base queryset
+        mam_accounts = TradingAccount.objects.filter(account_type__in=["mam", "mam_investment"])
+        
+        # Apply search filter if provided
+        if search_query:
+            mam_accounts = mam_accounts.filter(
+                Q(account_id__icontains=search_query) |
+                Q(account_name__icontains=search_query) |
+                Q(user__username__icontains=search_query) |
+                Q(user__email__icontains=search_query)
+            )
+        
+        # Get total count before pagination
+        total_count = mam_accounts.count()
+        
+        # Apply pagination
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
+        paginated_accounts = mam_accounts[start_index:end_index]
+        
+        serializer = TradingAccountSerializer(paginated_accounts, many=True)
+        
+        return Response({
+            "count": total_count,
+            "next": None,
+            "previous": None,
+            "results": serializer.data,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total_count + page_size - 1) // page_size
+        })
+    except Exception as e:
+        logger.error(f"Error listing MAM managers: {str(e)}")
+        return Response({
+            "error": str(e),
+            "results": []
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
