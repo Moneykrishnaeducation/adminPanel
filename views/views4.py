@@ -74,6 +74,28 @@ class UserDetailView(APIView):
                                 status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
             return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+    def delete(self, request, user_id):
+        """
+        Delete a user. Only allowed for admins/superusers.
+        Supports fallback to PK when `user_id` lookup fails.
+        """
+        try:
+            # Permission check: only superuser or admin manager_admin_status
+            if not (request.user.is_superuser or (hasattr(request.user, 'manager_admin_status') and request.user.manager_admin_status and 'admin' in request.user.manager_admin_status.lower())):
+                return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+            try:
+                user = CustomUser.objects.get(user_id=user_id)
+            except CustomUser.DoesNotExist:
+                # Fallback to primary key
+                user = CustomUser.objects.get(pk=user_id)
+
+            user.delete()
+            return Response({"success": True}, status=status.HTTP_200_OK)
+        except CustomUser.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": f"An error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 from django.utils.timezone import now
 from adminPanel.mt5.services import MT5ManagerActions
 from rest_framework.pagination import PageNumberPagination

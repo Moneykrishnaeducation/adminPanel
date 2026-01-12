@@ -78,7 +78,7 @@ def list_admin_managers(request):
                 
                 # Check if attributes exist before accessing them
                 user_data = {
-                    'id': user.id,
+                    'id': user.user_id,
                     'username': user.username,
                     'email': user.email,
                     'first_name': user.first_name,
@@ -89,13 +89,13 @@ def list_admin_managers(request):
                     'address': getattr(user, 'address', None)  # Use getattr with default value
                 }
                 admin_users.append(user_data)
-                logger.info(f"Successfully processed user {user.id}")
+                # logger.info(f"Successfully processed user {user.user_id}")
             except Exception as user_error:
-                logger.error(f"Error processing user {user.id}: {str(user_error)}")
+                logger.error(f"Error processing user {user.user_id}: {str(user_error)}")
                 # Continue with the next user instead of failing the entire request
                 continue
         
-        logger.info(f"Returning {len(admin_users)} admin/manager users")
+        # logger.info(f"Returning {len(admin_users)} admin/manager users")
         return Response({'success': True, 'admins': admin_users})
     except Exception as e:
         logger.error(f"Error fetching admin/manager users: {str(e)}", exc_info=True)
@@ -175,8 +175,9 @@ def create_admin_manager(request):
             last_name=data['last_name'],
             is_staff=True if data['role'] == 'admin' else False,
             is_active=True,
-            manager_admin_status=data['role'],
-            phone=data.get('phone_number', ''),
+            manager_admin_status=data['manager_admin_status'],
+            role=data['role'].lower(),
+            phone_number=data.get('phone_number', ''),
             address=data.get('address', '')
         )
         
