@@ -92,37 +92,41 @@ urlpatterns = [
     path('api/server-settings', ServerSettingsAPIView.as_view(), name='api-server-settings-no-slash'),
     
     # Document upload and verification endpoints
-    path('upload-document/', upload_document, name='upload-document'),
-    path('verify-document/<str:document_type>/', verify_document, name='verify-document'),
+    path('api/upload-document/', upload_document, name='upload-document'),
+    path('api/verify-document/<str:document_type>/', verify_document, name='verify-document'),
     
     # Non-API endpoints (less specific patterns)
     # Users API endpoint for admin subdomain
-    path('users/', list_users, name='list_users'),
+    path('api/users/', list_users, name='list_users'),
     
     # Trading accounts API endpoint for admin subdomain
-    path('ib-user/<int:user_id>/trading-accounts/', get_trading_accounts, name='get-trading-accounts'),
+    # path('api/ib-user/<int:user_id>/trading-accounts/', get_trading_accounts, name='get-trading-accounts'),
     
     # NEW: Modal API endpoints
-    path('ib-user/<int:user_id>/ib-profiles/', get_ib_profiles, name='get-ib-profiles'),
-    path('ib-user/<int:user_id>/ib-status/', user_ib_status, name='user-ib-status'),
-    path('ib-user/<int:user_id>/transactions/', get_user_transactions, name='get-user-transactions'),
+    path('api/ib-user/<int:user_id>/ib-profiles/', get_ib_profiles, name='get-ib-profiles'),
+    path('api/ib-user/<int:user_id>/ib-status/', user_ib_status, name='user-ib-status'),
+    path('api/ib-user/<int:user_id>/transactions/', get_user_transactions, name='get-user-transactions'),
     # NOTE: bank-details endpoint moved to user_details_views.py for better functionality
-    # path('ib-user/<int:user_id>/bank-details/', user_bank_details, name='user-bank-details'),  # REMOVED - conflicts with new comprehensive view
-    path('ib-user/<int:user_id>/verification/', user_verification_status, name='user-verification-status'),
-    path('ib-user/<int:user_id>/demo-accounts/', get_demo_accounts, name='get-demo-accounts'),
-    path('ib-user/<int:user_id>/demo-accounts/<str:account_number>/', update_demo_account, name='update-demo-account'),
-    path('ib-user/<int:user_id>/demo-accounts/<str:account_number>/reset/', reset_demo_account, name='reset-demo-account'),
+    # path('api/ib-user/<int:user_id>/bank-details/', user_bank_details, name='user-bank-details'),  # REMOVED - conflicts with new comprehensive view
+    path('api/ib-user/<int:user_id>/verification/', user_verification_status, name='user-verification-status'),
+    path('api/ib-user/<int:user_id>/demo-accounts/', get_demo_accounts, name='get-demo-accounts'),
+    path('api/ib-user/<int:user_id>/demo-accounts/<str:account_number>/', update_demo_account, name='update-demo-account'),
+    path('api/ib-user/<int:user_id>/demo-accounts/<str:account_number>/reset/', reset_demo_account, name='reset-demo-account'),
+    
+    # Legacy non-API ib-user routes (for backward compatibility with frontend)
+    # path('ib-user/<int:user_id>/trading-accounts/', get_trading_accounts, name='get-trading-accounts-legacy'),
+    path('ib-user/<int:user_id>/ib-profiles/', get_ib_profiles, name='get-ib-profiles-legacy'),
+    path('ib-user/<int:user_id>/ib-status/', user_ib_status, name='user-ib-status-legacy'),
+    path('ib-user/<int:user_id>/transactions/', get_user_transactions, name='get-user-transactions-legacy'),
+    path('ib-user/<int:user_id>/verification/', user_verification_status, name='user-verification-status-legacy'),
+    path('ib-user/<int:user_id>/demo-accounts/', get_demo_accounts, name='get-demo-accounts-legacy'),
+    path('ib-user/<int:user_id>/demo-accounts/<str:account_number>/', update_demo_account, name='update-demo-account-legacy'),
+    path('ib-user/<int:user_id>/demo-accounts/<str:account_number>/reset/', reset_demo_account, name='reset-demo-account-legacy'),
     
     # Static files
     re_path(r'^static/(?P<path>.*)$', serve, {
         'document_root': settings.STATIC_ROOT,
     }),
-    
-    # Serve admin app for root path
-    path('', serve_admin_app, name='admin-home'),
-
-    # Catch all other paths to serve admin SPA (DISABLED FOR TESTING)
-    # re_path(r'^(?!api/)(?!admin-api/)(?!ib-user/)(?!users/)(?!upload-document/)(?!verify-document/).*$', serve_admin_app),
 ]
 
 # Add static/media serving in development

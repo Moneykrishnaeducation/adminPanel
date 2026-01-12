@@ -346,26 +346,26 @@ def login_view(request):
             role_val = 'admin'
 
         if access_token:
-            response.set_cookie('jwt_token', access_token, httponly=False, secure=secure_flag,
+            response.set_cookie('jwt_token', access_token, httponly=True, secure=secure_flag,
                                 samesite='Strict', path='/', max_age=access_max_age, domain=cookie_domain)
-            response.set_cookie('access_token', access_token, httponly=False, secure=secure_flag,
+            response.set_cookie('access_token', access_token, httponly=True, secure=secure_flag,
                                 samesite='Strict', path='/', max_age=access_max_age, domain=cookie_domain)
-            response.set_cookie('accessToken', access_token, httponly=False, secure=secure_flag,
+            response.set_cookie('accessToken', access_token, httponly=True, secure=secure_flag,
                                 samesite='Strict', path='/', max_age=access_max_age, domain=cookie_domain)
 
-            # UI-facing cookies (not HttpOnly) so frontend JS can read user info
+            # UI-facing cookies (HttpOnly) for security - backend will handle auth
             try:
-                response.set_cookie('userName', user_name or '', httponly=False, secure=secure_flag,
+                response.set_cookie('userName', user_name or '', httponly=True, secure=secure_flag,
                                     samesite='Strict', path='/', max_age=access_max_age, domain=cookie_domain)
             except Exception:
                 pass
             try:
-                response.set_cookie('userEmail', user.email or '', httponly=False, secure=secure_flag,
+                response.set_cookie('userEmail', user.email or '', httponly=True, secure=secure_flag,
                                     samesite='Strict', path='/', max_age=access_max_age, domain=cookie_domain)
             except Exception:
                 pass
             try:
-                response.set_cookie('userRole', role_val or 'admin', httponly=False, secure=secure_flag,
+                response.set_cookie('userRole', role_val or 'admin', httponly=True, secure=secure_flag,
                                     samesite='Strict', path='/', max_age=access_max_age, domain=cookie_domain)
             except Exception:
                 pass
@@ -377,11 +377,32 @@ def login_view(request):
         logger.exception("Failed to set admin auth cookies")
 
     return response
-@api_view(['POST'])
-@permission_classes([IsAuthenticated, IsAdminOrManager])
+@api_view(['POST', 'OPTIONS'])
+@permission_classes([AllowAny])
+@csrf_exempt
 def logout_view(request):
+    """Secure logout endpoint that clears all auth cookies and blacklists tokens"""
+    
+    # Handle OPTIONS request for CORS
+    if request.method == 'OPTIONS':
+        response = Response({})
+        response['Content-Length'] = '0'
+        return response
+    
     # Attempt to blacklist the provided refresh token, but always clear cookies/session
-    refresh_token = request.data.get('refresh') if hasattr(request, 'data') else None
+    refresh_token = None
+    try:
+        refresh_token = request.data.get('refresh') if hasattr(request, 'data') else None
+    except Exception:
+        pass
+    
+    # Try fallback to cookies if no refresh token in body
+    if not refresh_token:
+        try:
+            refresh_token = request.COOKIES.get('refresh_token')
+        except Exception:
+            pass
+    
     token_error = None
     if refresh_token:
         try:
@@ -396,28 +417,43 @@ def logout_view(request):
             except Exception:
                 pass
 
-    # Build response and clear cookies
-    resp_status = 200 if not token_error else 400
-    resp_body = {'message': 'Successfully logged out'} if not token_error else {'error': 'Invalid or expired token'}
-    response = Response(resp_body, status=resp_status)
+    # Build response and clear cookies - ALWAYS return 200 on logout for security
+    # (don't reveal whether token was valid or not)
+    resp_body = {'message': 'Successfully logged out', 'success': True}
+    response = Response(resp_body, status=200)
 
-    # Delete cookies set during login (HttpOnly and UI-facing)
+    # Delete cookies set during login (all HttpOnly)
+    # CRITICAL: Must use set_cookie with max_age=0 and EXACT same parameters as when created
+    # delete_cookie() doesn't work properly for HttpOnly cookies
     try:
+        secure_flag = not settings.DEBUG
         cookie_domain = getattr(settings, 'COOKIE_DOMAIN', None)
-        cookie_names = [
-            'jwt_token', 'UserRole','access_token','login_verification_pending','role','accessToken', 'admin_app_loaded', 'refreshToken', 'refresh_token',
-            'userName', 'userEmail', 'userRole', 'user_role', 'current_page','themeMode',
+        
+        # All auth and user metadata cookies are HttpOnly - MUST match login parameters exactly
+        all_cookies = [
+            'jwt_token', 'access_token', 'accessToken', 
+            'refresh_token', 'refreshToken',
+            'userName', 'userEmail', 'userRole', 'user_role', 'UserRole', 
+            'current_page', 'themeMode', 'login_verification_pending', 
+            'role', 'admin_app_loaded',
+            'sessionid', 'csrftoken',  # Django session cookies
+            'user_name', 'username'     # Fallback name cookies
         ]
-        for name in cookie_names:
-            # Use delete_cookie so headers are correctly constructed
+        
+        for name in all_cookies:
             try:
-                response.delete_cookie(name, path='/', domain=cookie_domain)
+                response.set_cookie(
+                    name,
+                    '',
+                    httponly=True,
+                    secure=secure_flag,
+                    samesite='Strict',
+                    path='/',
+                    max_age=0,
+                    domain=cookie_domain
+                )
             except Exception:
-                try:
-                    # Fallback: set expired cookie
-                    response.set_cookie(name, '', max_age=0, expires=0, path='/', domain=cookie_domain)
-                except Exception:
-                    pass
+                pass
     except Exception:
         try:
             logger.exception('Failed to delete logout cookies')

@@ -897,6 +897,268 @@ class WithdrawView(APIView):
                 "account_id": account_id if 'account_id' in locals() else None
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+@api_view(['GET'])
+def ib_clients_deposit_transactions(request):
+    """
+    Get deposit transactions only for clients under the authenticated IB parent.
+    This endpoint filters transactions based on the client's parent_ib field.
+    
+    Query Parameters:
+    - page: Page number (default: 1)
+    - page_size: Number of records per page (default: 50)
+    - start_date: Filter by start date (YYYY-MM-DD format)
+    - end_date: Filter by end date (YYYY-MM-DD format)
+    """
+    permission_classes = [IsAdminOrManager]
+    try:
+        # Get the authenticated user
+        authenticated_user = request.user
+        
+        # Check if the user is an IB (has clients)
+        try:
+            ib_clients = authenticated_user.clients.all()
+            if not ib_clients.exists():
+                return Response({
+                    "error": "User is not an IB parent or has no clients",
+                    "user": authenticated_user.username,
+                    "ib_status": getattr(authenticated_user, 'IB_status', False)
+                }, status=status.HTTP_403_FORBIDDEN)
+        except (AttributeError, Exception):
+            return Response({
+                "error": "User is not an IB parent or has no clients",
+                "user": authenticated_user.username,
+                "ib_status": getattr(authenticated_user, 'IB_status', False)
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get all clients under this IB parent
+        ib_clients = authenticated_user.clients.all()
+        client_ids = ib_clients.values_list('id', flat=True)
+        
+        # Get pagination parameters
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 50))
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
+        
+        # Query transactions for all clients under this IB
+        qs = Transaction.objects.filter(
+            user_id__in=client_ids,
+            transaction_type='deposit_trading'
+        )
+        
+        # Apply date filters if provided
+        if start_date:
+            qs = qs.filter(created_at__date__gte=start_date)
+        if end_date:
+            qs = qs.filter(created_at__date__lte=end_date)
+        
+        # Order by created date (newest first)
+        qs = qs.order_by('-created_at')
+        
+        # Get total count before pagination
+        total_count = qs.count()
+        
+        # Apply pagination
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_qs = qs[start_idx:end_idx]
+        
+        # Serialize the results
+        serializer = TransactionSerializer(paginated_qs, many=True)
+        
+        return Response({
+            "data": serializer.data,
+            "total": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total_count + page_size - 1) // page_size,
+            "clients_count": client_ids.count(),
+            "ib_username": authenticated_user.username
+        }, status=status.HTTP_200_OK)
+        
+    except ValueError as e:
+        return Response({
+            "error": "Invalid pagination parameters",
+            "details": str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"Error fetching IB client deposits: {str(e)}", exc_info=True)
+        return Response({
+            "error": "Internal server error",
+            "details": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def ib_clients_withdrawal_transactions(request):
+    """
+    Get withdrawal transactions only for clients under the authenticated IB parent.
+    This endpoint filters transactions based on the client's parent_ib field.
+    
+    Query Parameters:
+    - page: Page number (default: 1)
+    - page_size: Number of records per page (default: 50)
+    - start_date: Filter by start date (YYYY-MM-DD format)
+    - end_date: Filter by end date (YYYY-MM-DD format)
+    """
+    permission_classes = [IsAdminOrManager]
+    try:
+        # Get the authenticated user
+        authenticated_user = request.user
+        
+        # Check if the user is an IB (has clients)
+        if not hasattr(authenticated_user, 'clients') or authenticated_user.clients.count() == 0:
+            return Response({
+                "error": "User is not an IB parent or has no clients",
+                "user": authenticated_user.username,
+                "ib_status": getattr(authenticated_user, 'IB_status', False)
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get all clients under this IB parent
+        ib_clients = authenticated_user.clients.all()
+        client_ids = ib_clients.values_list('id', flat=True)
+        
+        # Get pagination parameters
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 50))
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
+        
+        # Query transactions for all clients under this IB
+        qs = Transaction.objects.filter(
+            user_id__in=client_ids,
+            transaction_type='withdraw_trading'
+        )
+        
+        # Apply date filters if provided
+        if start_date:
+            qs = qs.filter(created_at__date__gte=start_date)
+        if end_date:
+            qs = qs.filter(created_at__date__lte=end_date)
+        
+        # Order by created date (newest first)
+        qs = qs.order_by('-created_at')
+        
+        # Get total count before pagination
+        total_count = qs.count()
+        
+        # Apply pagination
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_qs = qs[start_idx:end_idx]
+        
+        # Serialize the results
+        serializer = TransactionSerializer(paginated_qs, many=True)
+        
+        return Response({
+            "data": serializer.data,
+            "total": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total_count + page_size - 1) // page_size,
+            "clients_count": client_ids.count(),
+            "ib_username": authenticated_user.username
+        }, status=status.HTTP_200_OK)
+        
+    except ValueError as e:
+        return Response({
+            "error": "Invalid pagination parameters",
+            "details": str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"Error fetching IB client withdrawals: {str(e)}", exc_info=True)
+        return Response({
+            "error": "Internal server error",
+            "details": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+def ib_clients_internal_transfer_transactions(request):
+    """
+    Get internal transfer transactions only for clients under the authenticated IB parent.
+    This endpoint filters transactions based on the client's parent_ib field.
+    
+    Query Parameters:
+    - page: Page number (default: 1)
+    - page_size: Number of records per page (default: 50)
+    - start_date: Filter by start date (YYYY-MM-DD format)
+    - end_date: Filter by end date (YYYY-MM-DD format)
+    """
+    
+    permission_classes = [IsAdminOrManager]
+    try:
+        # Get the authenticated user
+        authenticated_user = request.user
+        
+        # Check if the user is an IB (has clients)
+        if not hasattr(authenticated_user, 'clients') or authenticated_user.clients.count() == 0:
+            return Response({
+                "error": "User is not an IB parent or has no clients",
+                "user": authenticated_user.username,
+                "ib_status": getattr(authenticated_user, 'IB_status', False)
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get all clients under this IB parent
+        ib_clients = authenticated_user.clients.all()
+        client_ids = ib_clients.values_list('id', flat=True)
+        
+        # Get pagination parameters
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 50))
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
+        
+        # Query transactions for all clients under this IB
+        qs = Transaction.objects.filter(
+            user_id__in=client_ids,
+            transaction_type='internal_transfer'
+        )
+        
+        # Apply date filters if provided
+        if start_date:
+            qs = qs.filter(created_at__date__gte=start_date)
+        if end_date:
+            qs = qs.filter(created_at__date__lte=end_date)
+        
+        # Order by created date (newest first)
+        qs = qs.order_by('-created_at')
+        
+        # Get total count before pagination
+        total_count = qs.count()
+        
+        # Apply pagination
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_qs = qs[start_idx:end_idx]
+        
+        # Serialize the results
+        serializer = TransactionSerializer(paginated_qs, many=True)
+        
+        return Response({
+            "data": serializer.data,
+            "total": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total_count + page_size - 1) // page_size,
+            "clients_count": client_ids.count(),
+            "ib_username": authenticated_user.username
+        }, status=status.HTTP_200_OK)
+        
+    except ValueError as e:
+        return Response({
+            "error": "Invalid pagination parameters",
+            "details": str(e)
+        }, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error(f"Error fetching IB client internal transfers: {str(e)}", exc_info=True)
+        return Response({
+            "error": "Internal server error",
+            "details": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
 class InternalTransferView(APIView):
     # Use the custom BlacklistCheckingJWTAuthentication from settings instead of overriding
     # authentication_classes = [JWTAuthentication, SessionAuthentication]

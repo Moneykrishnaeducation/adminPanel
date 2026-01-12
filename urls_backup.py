@@ -223,7 +223,7 @@ urlpatterns = [
     # Trading accounts
     path('trading-accounts/', trading_accounts_page, name='trading_accounts'),
     path('admin-api/trading-accounts/', trading_accounts_list, name='api-trading-accounts-list'),
-    path('ib-user/<int:user_id>/trading-accounts/', get_trading_accounts, name='get-trading-accounts'),
+    # path('ib-user/<int:user_id>/trading-accounts/', get_trading_accounts, name='get-trading-accounts'),
 
     # IB/Partner management
     path('commissioning-profiles/', commissioning_profiles_list, name='commissioning-profiles-list'),

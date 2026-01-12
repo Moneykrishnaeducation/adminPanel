@@ -1198,7 +1198,7 @@ def get_user_transactions(request, user_id):
         return Response({"error": f"Failed to fetch transactions: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@api_view(['GET', 'POST'])
+@api_view(['GET', 'POST', 'PATCH'])
 @permission_classes([IsAuthenticatedUser])
 def user_bank_details(request, user_id):
     """
@@ -1213,17 +1213,17 @@ def user_bank_details(request, user_id):
             try:
                 bank_details = BankDetails.objects.get(user=user)
                 bank_details_data = {
-                    'bank-details-name': bank_details.bank_name or '',
-                    'bank-details-account': bank_details.account_number or '',
-                    'bank-details-branch': bank_details.branch or '',
-                    'bank-details-ifsc': bank_details.ifsc_code or ''
+                    'bank_name': bank_details.bank_name or '',
+                    'account_number': bank_details.account_number or '',
+                    'branch_name': bank_details.branch or '',
+                    'ifsc_code': bank_details.ifsc_code or ''
                 }
             except BankDetails.DoesNotExist:
                 bank_details_data = {
-                    'bank-details-name': '',
-                    'bank-details-account': '',
-                    'bank-details-branch': '',
-                    'bank-details-ifsc': ''
+                    'bank_name': '',
+                    'account_number': '',
+                    'branch_name': '',
+                    'ifsc_code': ''
                 }
             
             # Get crypto details from CryptoDetails model
@@ -1231,26 +1231,27 @@ def user_bank_details(request, user_id):
             try:
                 crypto_details = CryptoDetails.objects.get(user=user)
                 crypto_details_data = {
-                    'crypto-wallet': crypto_details.wallet_address or '',
-                    'crypto-exchange': crypto_details.exchange_name or ''
+                    'wallet_address': crypto_details.wallet_address or '',
+                    'exchange_name': crypto_details.exchange_name or ''
                 }
             except CryptoDetails.DoesNotExist:
                 crypto_details_data = {
-                    'crypto-wallet': '',
-                    'crypto-exchange': ''
+                    'wallet_address': '',
+                    'exchange_name': ''
                 }
             
             # Combine both bank and crypto details
             combined_details = {**bank_details_data, **crypto_details_data}
             return Response(combined_details, status=status.HTTP_200_OK)
         
-        elif request.method == 'POST':
-            # Update bank details
+        elif request.method in ['POST', 'PATCH']:
+            # Update bank details (POST or PATCH)
+            # Support both old format (bank-details-name) and new format (bank_name)
             bank_data = {
-                'bank_name': request.data.get('bank-details-name', ''),
-                'account_number': request.data.get('bank-details-account', ''),
-                'branch': request.data.get('bank-details-branch', ''),
-                'ifsc_code': request.data.get('bank-details-ifsc', '')
+                'bank_name': request.data.get('bank_name') or request.data.get('bank-details-name', ''),
+                'account_number': request.data.get('account_number') or request.data.get('bank-details-account', ''),
+                'branch': request.data.get('branch_name') or request.data.get('branch') or request.data.get('bank-details-branch', ''),
+                'ifsc_code': request.data.get('ifsc_code') or request.data.get('bank-details-ifsc', '')
             }
             
             # Only create/update if at least one bank field is provided
@@ -1262,9 +1263,10 @@ def user_bank_details(request, user_id):
                 bank_details.save()
             
             # Update crypto details
+            # Support both old format (crypto-wallet) and new format (wallet_address)
             crypto_data = {
-                'wallet_address': request.data.get('crypto-wallet', ''),
-                'exchange_name': request.data.get('crypto-exchange', '')
+                'wallet_address': request.data.get('wallet_address') or request.data.get('crypto-wallet', ''),
+                'exchange_name': request.data.get('exchange_name') or request.data.get('crypto-exchange', '')
             }
             
             # Only create/update if at least one crypto field is provided
@@ -1515,49 +1517,7 @@ def change_leverage_update(request):
         return Response({"error": "Account not found."}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    except Exception as e:
-        return Response({"error": str(e)}, status=500)
 
-# --- API endpoint for updating trading account leverage ---
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def change_leverage_update(request):
-    """
-    Updates the leverage for a trading account. Requires admin authentication.
-    Expects: { "account_id": <str>, "new_leverage": <int> }
-    """
-    try:
-        account_id = str(request.data.get("account_id"))
-        new_leverage = int(request.data.get("new_leverage"))
-        allowed_leverage = [10, 20, 50, 100, 200, 500, 1000]
-        if new_leverage not in allowed_leverage:
-            return Response({"error": "Invalid leverage value."}, status=400)
-        account = TradingAccount.objects.get(account_id=account_id)
-        old_leverage = account.leverage
-        account.leverage = new_leverage
-        account.save()
-        # Log activity if ActivityLog model exists
-        try:
-            ActivityLog.objects.create(
-                user=request.user,
-                activity=f"Changed leverage for account {account_id} from {old_leverage} to {new_leverage}",
-                ip_address=get_client_ip(request),
-                endpoint=request.path,
-                activity_type="update",
-                activity_category="management",
-                user_agent=request.META.get("HTTP_USER_AGENT", ""),
-                timestamp=timezone.now(),
-                related_object_id=account.id,
-                related_object_type="Leverage Change"
-            )
-        except Exception:
-            pass
-        return Response({"success": True, "account_id": account_id, "new_leverage": new_leverage}, status=200)
-    except TradingAccount.DoesNotExist:
-        return Response({"error": "Account not found."}, status=404)
-    except Exception as e:
-        return Response({"error": str(e)}, status=500)
-    
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 

@@ -17,7 +17,7 @@ import json
 import logging
 import time
 
-from adminPanel.models import CustomUser, TradingAccount, Transaction
+from adminPanel.models import CustomUser, TradingAccount, Transaction, Ticket, IBRequest
 from adminPanel.decorators import role_required
 from adminPanel.roles import UserRole
 from rest_framework.permissions import IsAuthenticated
@@ -199,8 +199,11 @@ def generate_manager_dashboard_data(manager_user):
             user_id__in=client_ids
         ).aggregate(total=Sum('amount'))['total'] or 0 if client_ids else 0
         
-        # You may need to adjust these based on your ticket/request models
-        pending_tickets = 0  # Implement based on your ticket system
+        # Get pending tickets created by this manager
+        pending_tickets = Ticket.objects.filter(
+            status='pending',
+            created_by=manager_user
+        ).count()
         pending_requests = 0  # Implement based on your request system
         
         logger.info(f"✅ Manager dashboard data generated for {manager_user.username}: {len(client_ids)} clients, {live_count} live accounts, {demo_count} demo accounts")
@@ -261,6 +264,7 @@ def generate_manager_dashboard_data(manager_user):
             'error': str(e),
             'last_updated': timezone.now().isoformat()
         }
+
 
 def generate_dashboard_data():
     """
@@ -329,9 +333,13 @@ def generate_dashboard_data():
         status='pending'
     ).count()
     
-    # You may need to adjust these based on your ticket/request models
-    pending_tickets = 0  # Implement based on your ticket system
-    pending_requests = 0  # Implement based on your request system
+    # Get pending tickets from Ticket model
+    pending_tickets = Ticket.objects.filter(
+        status='pending'
+    ).count()
+    pending_requests = IBRequest.objects.filter(
+        status='pending'
+    ).count()
 
     # Calculate total withdrawn globally (approved withdraw types)
     withdraw_types = ['withdraw_trading', 'credit_out']

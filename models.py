@@ -1450,10 +1450,10 @@ class Transaction(models.Model):
         null=True,
         help_text="Destination trading account for internal transfers."
     )
-    # migrated_to_old_withdrawal = models.BooleanField(
-    #     default=False,
-    #     help_text="Whether this transaction has been migrated to the old withdrawal system."
-    # )
+    migrated_to_old_withdrawal = models.BooleanField(
+        default=False,
+        help_text="Whether this transaction has been migrated to the old withdrawal system."
+    )
 
     def document_file(instance, filename):
         tran_id = instance.id if instance.id else "unsaved"

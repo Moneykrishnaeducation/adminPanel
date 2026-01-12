@@ -4,7 +4,7 @@ import logging
 import os
 from django.http import HttpResponse
 from .views.views import change_leverage_info, change_leverage_update, demo_accounts_api_view, disable_demo_account, enable_demo_account
-from .views.activity_api import activity_logs_client, activity_logs_staff
+from .views.activity_api import activity_logs_client, activity_logs_staff, ib_clients_activity_logs
 from django.http import JsonResponse
 
 from django.urls import path, include, re_path
@@ -111,7 +111,7 @@ from .views.partner_views import (
     ib_user_statistics_view
 )
 from .views.views2 import CreateCommissioningProfileView, UpdateCommissioningProfileView, UserProfileView, update_demo_account, get_available_trading_groups, get_commission_profile_details
-from .views.views import commissioning_profiles_list
+from .views.views import commissioning_profiles_list, get_ib_profiles, user_ib_status, get_user_transactions, user_verification_status, get_demo_accounts, reset_demo_account
 from .views.prop_trading_views import package_list_view, create_prop_trading_package, approve_prop_request, reject_prop_request
 from .views.admin_app_views import serve_admin_app
 from .views.trading_views import (
@@ -165,7 +165,11 @@ from .views.views7 import (
     InternalTransferView,
     csrf_token_view,
     create_trading_account_view,
-    create_demo_account_view
+    create_demo_account_view,
+    create_demo_account_view,
+    ib_clients_deposit_transactions,
+    ib_clients_withdrawal_transactions,
+    ib_clients_internal_transfer_transactions
 )
 from .views.simple_transaction_views import (
     SimpleDepositView,
@@ -228,6 +232,7 @@ urlpatterns = [
     path('api/accounts/internal-transfer/', InternalTransferSubmitView.as_view(), name='internal-transfer-submit'),
     # Other API routes
     path('api/activity/client-logs/', activity_logs_client, name='api-activity-client-logs'),
+    path('api/activity/ib-clients/', ib_clients_activity_logs, name='api-activity-ib-clients'),
     path('api/activity/staff/', activity_logs_staff, name='api-activity-staff'),
     # User status update endpoint for frontend status toggle
     path('api/users/<int:user_id>/status/', update_user_status, name='api-user-status'),
@@ -258,7 +263,11 @@ urlpatterns = [
     
     # Primary API endpoints for admin transactions (RESTORED FOR FRONTEND CONNECTIVITY)
     path('api/admin/deposit/', DepositView.as_view(), name='api-admin-deposit'),
+    path('api/admin/ib-clients-deposit/', ib_clients_deposit_transactions, name='api-ib-clients-deposit'),
     path('api/admin/withdraw/', WithdrawView.as_view(), name='api-admin-withdraw'),
+    path('api/admin/ib-clients-withdraw/', ib_clients_withdrawal_transactions, name='api-ib-clients-withdraw'),
+    path('api/admin/internal-transfer/', InternalTransferView.as_view(), name='api-admin-internal-transfer'),
+    path('api/admin/ib-clients-internal-transfer/', ib_clients_internal_transfer_transactions, name='api-ib-clients-internal-transfer'),
     path('api/admin/credit-in/', CreditInTransactionView.as_view(), name='api-admin-credit-in'),
     path('api/admin/credit-out/', CreditOutView.as_view(), name='api-admin-credit-out'),
     path('api/admin/toggle-account-status/', EnableDisableAccountView.as_view(), name='api-admin-toggle-account-status'),
@@ -485,7 +494,10 @@ urlpatterns = [
     path('', include('adminPanel.admin_urls')),
     # ======================================
     # Tickets API (legacy frontend compatibility) - must be registered BEFORE the SPA catch-all
-    path('tickets/', TicketView.as_view(), name='tickets'),
+	# Backwards-compatible create endpoint used by older frontend bundles
+    path('api/tickets/create/', TicketView.as_view(), name='ticket-create'),
+    path('api/tickets/', TicketView.as_view(), name='tickets'),
+    path('api/tickets/<int:ticket_id>/', TicketDetailView.as_view(), name='ticket-detail'),
     path('tickets/<int:ticket_id>/', TicketDetailView.as_view(), name='ticket-detail'),
 
     # Admin dashboard pages (HTML views, not API)
@@ -523,7 +535,6 @@ urlpatterns = [
     # User management pages
     path('users/', list_users, name='list_users'),
     path('users/<int:user_id>/', get_user_info, name='get_user_info'),
-    path('ib-user/<int:user_id>/bank-details/', get_ib_user_bank_details, name='get_ib_user_bank_details'),
     path('create-user/', create_user_view, name='create_user'),
     path('api/admin/create-user/', create_user_view, name='api-create-user'),
     path('admins-managers/', list_admins_managers, name='list_admins_managers'),
@@ -550,12 +561,14 @@ urlpatterns = [
 
     # Trading accounts pages
     path('trading-accounts/', trading_accounts_page, name='trading_accounts'),
-    path('ib-user/<int:user_id>/trading-accounts/', get_trading_accounts, name='get-trading-accounts'),
 
     # IB/Partner management pages
     path('commissioning-profiles/', commissioning_profiles_list, name='commissioning-profiles-list'),
-    path('partner-profile/<int:partner_id>/', get_partner_profile, name='get-partner-profile'),
+   # API version (returns JSON) to avoid MIME negotiation issues when called via fetch
+    path('api/partner-profile/<int:partner_id>/', get_partner_profile, name='api-get-partner-profile'),
     path('update-partner-profile/<int:partner_id>/', update_partner_profile, name='update-partner-profile'),
+    # API-prefixed update endpoint to ensure JSON response and consistent routing
+    path('api/update-partner-profile/<int:partner_id>/', update_partner_profile, name='api-update-partner-profile'),
     path('api/admin/ib-user/<int:user_id>/commission-balance/', get_ib_commission_balance, name='api-admin-ib-user-commission-balance'),
     # Prop trading pages
     path('prop-packages/', package_list_view, name='package_list'),
@@ -574,9 +587,34 @@ urlpatterns = [
     # Redirect legacy manager index path to the manager SPA root
     path('manager/index.html', serve_admin_app if False else __import__('adminPanel.views.admin_app_views', fromlist=['redirect_manager_index']).redirect_manager_index, name='manager-index-redirect'),
     path('settings/', serve_admin_app, name='admin-settings-spa'),
+    
+    # CRITICAL: ib-user routes MUST come before catch-all regex
+    # API ib-user routes (NEW - with /api/ prefix for frontend compatibility)
+    path('api/ib-user/<int:user_id>/trading-accounts/', get_trading_accounts, name='api-get-trading-accounts'),
+    path('api/ib-user/<int:user_id>/ib-profiles/', get_ib_profiles, name='api-get-ib-profiles'),
+    path('api/ib-user/<int:user_id>/ib-status/', user_ib_status, name='api-user-ib-status'),
+    path('api/ib-user/<int:user_id>/transactions/', get_user_transactions, name='api-get-user-transactions'),
+    path('api/ib-user/<int:user_id>/verification/', user_verification_status, name='api-user-verification-status'),
+    path('api/ib-user/<int:user_id>/demo-accounts/', get_demo_accounts, name='api-get-demo-accounts'),
+    path('api/ib-user/<int:user_id>/demo-accounts/<str:account_number>/', update_demo_account, name='api-update-demo-account'),
+    path('api/ib-user/<int:user_id>/demo-accounts/<str:account_number>/reset/', reset_demo_account, name='api-reset-demo-account'),
+    path('api/ib-user/<int:user_id>/bank-details/', get_ib_user_bank_details, name='api-ib-user-bank-details'),
+    path('api/test-bank-details/', lambda request: __import__('rest_framework.response', fromlist=['Response']).Response({'test': 'success'}), name='api-test-bank-details'),
+    path('api/ib-user/<int:user_id>/crypto-details/', UserCryptoDetailsView.as_view(), name='api-ib-user-crypto-details'),
+    
+    # Legacy non-API ib-user routes (for backward compatibility with frontend)
+    path('ib-user/<int:user_id>/trading-accounts/', get_trading_accounts, name='get-trading-accounts-legacy'),
+    path('ib-user/<int:user_id>/ib-profiles/', get_ib_profiles, name='get-ib-profiles-legacy'),
+    path('ib-user/<int:user_id>/ib-status/', user_ib_status, name='user-ib-status-legacy'),
+    path('ib-user/<int:user_id>/transactions/', get_user_transactions, name='get-user-transactions-legacy'),
+    path('ib-user/<int:user_id>/verification/', user_verification_status, name='user-verification-status-legacy'),
+    path('ib-user/<int:user_id>/demo-accounts/', get_demo_accounts, name='get-demo-accounts-legacy'),
+    path('ib-user/<int:user_id>/demo-accounts/<str:account_number>/', update_demo_account, name='update-demo-account-legacy'),
+    path('ib-user/<int:user_id>/demo-accounts/<str:account_number>/reset/', reset_demo_account, name='reset-demo-account-legacy'),
+    
     # Root path for admin - catch all non-API routes and serve the admin SPA, but only when
     # the request host indicates the admin site (see serve_admin_app host check).
-    re_path(r'^(?!api/).*$', serve_admin_app, name='admin-root-catch-all'),
+    re_path(r'^(?!api/)(?!ib-user/)(?!admin-api/).*$', serve_admin_app, name='admin-root-catch-all'),
 ]
 
 # Static/media serving removed from adminPanel - handled at project level in brokerBackend/urls.py
