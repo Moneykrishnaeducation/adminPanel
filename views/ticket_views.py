@@ -16,6 +16,7 @@ class TicketView(APIView):
             # Support server-side filtering by user id or username when provided
             # Accept several query param names for user id for compatibility with different clients
             user_param = (
+                request.query_params.get('user') or
                 request.query_params.get('userid') or
                 request.query_params.get('userId')
             )
