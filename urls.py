@@ -110,7 +110,7 @@ from .views.partner_views import (
     disable_ib_user_view, enable_ib_user_view,
     ib_user_statistics_view
 )
-from .views.views2 import CreateCommissioningProfileView, UpdateCommissioningProfileView, UserProfileView, update_demo_account, get_available_trading_groups, get_commission_profile_details
+from .views.views2 import CreateCommissioningProfileView, UpdateCommissioningProfileView, UserProfileView, update_demo_account, get_available_trading_groups, get_available_trading_groups_non_demo, get_commission_profile_details
 from .views.views import commissioning_profiles_list, get_ib_profiles, user_ib_status, get_user_transactions, user_verification_status, get_demo_accounts, reset_demo_account
 from .views.prop_trading_views import package_list_view, create_prop_trading_package, approve_prop_request, reject_prop_request
 from .views.admin_app_views import serve_admin_app
@@ -339,6 +339,7 @@ urlpatterns = [
     path('api/commissioning-profiles/<int:profile_id>/details/', get_commission_profile_details, name='api-commission-profile-details'),
     path('api/create-commissioning-profile/', CreateCommissioningProfileView.as_view(), name='api-create-commissioning-profile'),
     path('api/trading-groups/', get_available_trading_groups, name='api-trading-groups'),
+    path('api/trading-groups-non-demo/', get_available_trading_groups_non_demo, name='trading-groups-non-demo'),
     
     path('api/profile/', get_user_profile, name='api-profile'),
     # User and Profile API endpoints - Enhanced for client connectivity

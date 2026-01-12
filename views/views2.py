@@ -189,6 +189,50 @@ def get_available_trading_groups(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticatedUser])
+def get_available_trading_groups_non_demo(request):
+    """
+    Get list of available trading groups excluding demo groups for commission profile configuration.
+    """
+    try:
+        # Try to get groups from TradingAccountGroup model
+        try:
+            trading_groups = TradingAccountGroup.objects.first()
+            if trading_groups and trading_groups.available_groups:
+                available_groups = trading_groups.available_groups
+            else:
+                available_groups = []
+        except:
+            available_groups = []
+        
+        # Also get groups from TradeGroup model
+        try:
+            trade_groups = TradeGroup.objects.filter(is_active=True).values_list('name', flat=True)
+            trade_groups_list = list(trade_groups)
+        except:
+            trade_groups_list = []
+        
+        # Combine and deduplicate
+        all_groups = list(set(available_groups + trade_groups_list))
+        
+        # Filter out demo groups (exclude any group containing "demo" in name)
+        non_demo_groups = [g for g in all_groups if g and 'demo' not in g.lower()]
+        non_demo_groups.sort()
+        
+        # If no non-demo groups found, provide some default examples
+        if not non_demo_groups:
+            non_demo_groups = ["real", "standard", "premium", "vip"]
+        
+        return Response({
+            "available_groups": non_demo_groups,
+            "total_count": len(non_demo_groups)
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error fetching non-demo trading groups: {e}")
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedUser])
 def get_commission_profile_details(request, profile_id):
     """
     Get detailed information about a specific commission profile.
