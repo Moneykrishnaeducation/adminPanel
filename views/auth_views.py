@@ -15,7 +15,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from datetime import timedelta
 from django.db.models import Q
-
+import hashlib
+import secrets
 import threading
 from django.utils import timezone
 from adminPanel.models import ActivityLog
@@ -31,6 +32,32 @@ from rest_framework.permissions import IsAuthenticated
 from adminPanel.permissions import IsAdminOrManager
 
 logger = logging.getLogger(__name__)
+
+# OTP Hashing utilities
+def hash_otp(otp):
+    """Hash OTP with salt for secure storage"""
+    salt = secrets.token_hex(16)  # Generate random 16-byte salt
+    otp_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        otp.encode('utf-8'),
+        salt.encode('utf-8'),
+        100000
+    )
+    return f"{salt}${otp_hash.hex()}"
+
+def verify_otp(stored_hash, provided_otp):
+    """Verify provided OTP against stored hash"""
+    try:
+        salt, otp_hash = stored_hash.split('$')
+        provided_hash = hashlib.pbkdf2_hmac(
+            'sha256',
+            provided_otp.encode('utf-8'),
+            salt.encode('utf-8'),
+            100000
+        ).hex()
+        return provided_hash == otp_hash
+    except Exception:
+        return False
 
 
 @api_view(['POST', 'OPTIONS'])
@@ -159,8 +186,10 @@ def login_view(request):
         try:
             # Generate login-specific OTP and attach to user
             otp = f"{random.randint(100000, 999999)}"
-            # Attach to user model (fields created for login OTP)
-            setattr(user, 'login_otp', otp)
+            # Hash OTP before storing
+            hashed_otp = hash_otp(otp)
+            # Attach hashed OTP to user model
+            setattr(user, 'login_otp', hashed_otp)
             setattr(user, 'login_otp_created_at', timezone.now())
             user.save(update_fields=['login_otp', 'login_otp_created_at'])
 

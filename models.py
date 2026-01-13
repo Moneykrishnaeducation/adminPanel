@@ -785,7 +785,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     otp = models.CharField(max_length=6, blank=True, null=True)
     otp_created_at = models.DateTimeField(blank=True, null=True)
     # Separate fields for login-specific OTPs to avoid collision with password-reset OTPs
-    login_otp = models.CharField(max_length=6, blank=True, null=True)
+    # max_length=256 to store hashed OTP (format: salt$hash)
+    login_otp = models.CharField(max_length=256, blank=True, null=True)
     login_otp_created_at = models.DateTimeField(blank=True, null=True)
     # Fast-access last-login info to avoid scanning ActivityLog for login checks
     last_login_ip = models.CharField(max_length=100, blank=True, null=True, db_index=True)
@@ -979,16 +980,34 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         expiration_time = timezone.now() - timezone.timedelta(minutes=10)
         return self.otp_created_at and self.otp_created_at > expiration_time
 
-    def is_login_otp_valid(self, otp):
+    def is_login_otp_valid(self, otp=None):
         """Validate login OTP (check value and expiration).
 
         Uses the `LOGIN_OTP_TTL_SECONDS` Django setting (defaults to 60 seconds).
+        
+        If otp is provided, verifies the hashed OTP matches the provided plain text.
+        If otp is None, just checks if a valid (non-expired) OTP exists.
         """
-        if self.login_otp != otp:
-            return False
+        # Check if OTP exists and hasn't expired
         ttl = getattr(settings, 'LOGIN_OTP_TTL_SECONDS', 60)
         expiration_time = timezone.now() - timezone.timedelta(seconds=ttl)
-        return bool(self.login_otp_created_at and self.login_otp_created_at > expiration_time)
+        
+        if not self.login_otp or not self.login_otp_created_at:
+            return False
+            
+        if self.login_otp_created_at <= expiration_time:
+            return False
+        
+        # If otp is provided, verify it against the hash
+        if otp is not None:
+            try:
+                from adminPanel.views.auth_views import verify_otp
+                return verify_otp(self.login_otp, otp)
+            except Exception:
+                return False
+        
+        # If no otp provided, just check expiration
+        return True
 
     def get_level(self):
         """Calculate the level of this user relative to their 'top-level' IB."""
