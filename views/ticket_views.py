@@ -3,20 +3,21 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from ..models import Ticket, ActivityLog
-from ..serializers import TicketSerializer
+from ..serializers import TicketSerializer, TicketWithMessagesSerializer
 from ..permissions import IsAdmin, IsManager, OrPermission
 from .views import get_client_ip
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 class TicketView(APIView):
     permission_classes = [OrPermission(IsAdmin, IsManager)]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     
     def get(self, request):
         try:
             # Support server-side filtering by user id or username when provided
             # Accept several query param names for user id for compatibility with different clients
             user_param = (
-                request.query_params.get('user') or
                 request.query_params.get('userid') or
                 request.query_params.get('userId')
             )
@@ -66,7 +67,7 @@ class TicketView(APIView):
             # Filter by status if provided
             if status_param:
                 tickets = tickets.filter(status=status_param)
-                serializer = TicketSerializer(tickets, many=True)
+                serializer = TicketWithMessagesSerializer(tickets, many=True, context={'request': request})
                 return Response(serializer.data)
 
             # Group tickets by status
@@ -76,7 +77,7 @@ class TicketView(APIView):
                 'closed': [],
             }
 
-            serializer = TicketSerializer(tickets, many=True)
+            serializer = TicketWithMessagesSerializer(tickets, many=True, context={'request': request})
             for ticket_data in serializer.data:
                 status_key = ticket_data.get('status', 'open')
                 grouped_tickets[status_key].append(ticket_data)
@@ -95,6 +96,12 @@ class TicketView(APIView):
         serializer = TicketSerializer(data=data)
         if serializer.is_valid():
             ticket = serializer.save(created_by=request.user)
+
+            # Save any uploaded files as messages attached to the ticket
+            from ..models import Message
+            files = request.FILES.getlist('documents') if hasattr(request, 'FILES') else []
+            for f in files:
+                Message.objects.create(ticket=ticket, sender=request.user, file=f)
             
             # Create activity log
             ActivityLog.objects.create(
@@ -114,6 +121,7 @@ class TicketView(APIView):
 
 class TicketDetailView(APIView):
     permission_classes = [OrPermission(IsAdmin, IsManager)]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     
     def get(self, request, ticket_id):
         try:
@@ -126,7 +134,7 @@ class TicketDetailView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
                 
-            serializer = TicketSerializer(ticket)
+            serializer = TicketWithMessagesSerializer(ticket, context={'request': request})
             return Response(serializer.data)
         except Ticket.DoesNotExist:
             return Response(
@@ -169,6 +177,13 @@ class TicketDetailView(APIView):
                     sender=request.user,
                     content=request.data.get('comment')
                 )
+
+            # Handle uploaded files in patch as message attachments
+            if hasattr(request, 'FILES') and request.FILES:
+                from ..models import Message
+                files = request.FILES.getlist('documents')
+                for f in files:
+                    Message.objects.create(ticket=ticket, sender=request.user, file=f)
             
             serializer = TicketSerializer(ticket)
             return Response(serializer.data)

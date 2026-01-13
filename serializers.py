@@ -899,25 +899,58 @@ class TicketSerializer(serializers.ModelSerializer):
         rep['user_id'] = self.get_user_id(instance)
         return rep
 
-
 class TicketStatusLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = TicketStatusLog
         fields = '__all__'
 
+
 class MessageSerializer(serializers.ModelSerializer):
-    sender_name = serializers.CharField(source='sender.username', read_only=True)  
+    sender_name = serializers.CharField(source='sender.username', read_only=True)
+
+    # Accept uploaded file on write, but return relative file path on read
+    file = serializers.FileField(required=False, allow_null=True)
 
     class Meta:
         model = Message
         fields = ['id', 'ticket', 'sender', 'sender_name', 'content', 'file', 'created_at']
         read_only_fields = ['created_at']
 
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        request = self.context.get('request')
+        if getattr(instance, 'file', None):
+            try:
+                url = instance.file.url
+                if request is not None:
+                    rep['file'] = request.build_absolute_uri(url)
+                else:
+                    rep['file'] = url
+            except Exception:
+                rep['file'] = None
+        else:
+            rep['file'] = None
+        return rep
+
     def validate(self, data):
-        
+        # During create/update `file` may be an UploadedFile in data or `content` may be present
         if not data.get('content') and not data.get('file'):
             raise serializers.ValidationError("Either content or a file must be provided.")
         return data
+
+
+class TicketWithMessagesSerializer(TicketSerializer):
+    """Extend ticket representation with related messages.
+
+    We avoid modifying `Meta.fields` because the base serializer may use
+    `'__all__'` (a string). Instead we append `messages` in
+    `to_representation` so file URLs are exposed safely.
+    """
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep['messages'] = MessageSerializer(instance.messages.all(), many=True, context=self.context).data
+        return rep
             
 class CreateTicketSerializer(serializers.ModelSerializer):
     class Meta:
@@ -936,7 +969,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user', 'activity', 'timestamp', 'ip_address', 
             'activity_type', 'activity_category', 'endpoint', 
-            'status_code', 'user_agent', 'related_object_id', 'related_object_type'
+            'status_code','user_agent', 'related_object_id', 'related_object_type'
         ]
 
 class TradingAccountGroupSerializer(serializers.ModelSerializer):
