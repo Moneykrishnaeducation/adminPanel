@@ -936,7 +936,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user', 'activity', 'timestamp', 'ip_address', 
             'activity_type', 'activity_category', 'endpoint', 
-            'user_agent', 'related_object_id', 'related_object_type'
+            'status_code', 'user_agent', 'related_object_id', 'related_object_type'
         ]
 
 class TradingAccountGroupSerializer(serializers.ModelSerializer):

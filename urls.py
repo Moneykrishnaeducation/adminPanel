@@ -4,7 +4,7 @@ import logging
 import os
 from django.http import HttpResponse
 from .views.views import change_leverage_info, change_leverage_update, demo_accounts_api_view, disable_demo_account, enable_demo_account
-from .views.activity_api import activity_logs_client, activity_logs_staff, ib_clients_activity_logs
+from .views.activity_api import activity_logs_client, activity_logs_staff, ib_clients_activity_logs, error_activity_logs
 from django.http import JsonResponse
 
 from django.urls import path, include, re_path
@@ -234,6 +234,7 @@ urlpatterns = [
     path('api/activity/client-logs/', activity_logs_client, name='api-activity-client-logs'),
     path('api/activity/ib-clients/', ib_clients_activity_logs, name='api-activity-ib-clients'),
     path('api/activity/staff/', activity_logs_staff, name='api-activity-staff'),
+    path('api/activity/error-logs/', error_activity_logs, name='api-activity-error-logs'),
     # User status update endpoint for frontend status toggle
     path('api/users/<int:user_id>/status/', update_user_status, name='api-user-status'),
     # ====== DASHBOARD API ROUTES ======

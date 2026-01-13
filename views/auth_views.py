@@ -57,6 +57,21 @@ def login_view(request):
     password = data.get('password')
 
     if not email or not password:
+        # Log failed login attempt
+        try:
+            ActivityLog.objects.create(
+                user=None,
+                activity="Login attempt - missing email/username or password",
+                ip_address=request.META.get('REMOTE_ADDR', ''),
+                endpoint=request.path,
+                activity_type="create",
+                activity_category="management",
+                status_code=400,
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                timestamp=timezone.now()
+            )
+        except Exception:
+            logger.exception("Failed to create failed login ActivityLog")
         return JsonResponse({'error': 'Email/username and password are required'}, status=400)
 
     # Start timing (for diagnostics only in DEBUG)
@@ -68,14 +83,59 @@ def login_view(request):
         .filter(Q(email__iexact=email) | Q(username__iexact=email)).first()
 
     if not user:
+        # Log failed login attempt
+        try:
+            ActivityLog.objects.create(
+                user=None,
+                activity=f"Login attempt - user not found: {email}",
+                ip_address=request.META.get('REMOTE_ADDR', ''),
+                endpoint=request.path,
+                activity_type="create",
+                activity_category="management",
+                status_code=401,
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                timestamp=timezone.now()
+            )
+        except Exception:
+            logger.exception("Failed to create user-not-found ActivityLog")
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
     # Check password
     if not user.check_password(password):
+        # Log failed login attempt
+        try:
+            ActivityLog.objects.create(
+                user=user,
+                activity="Login attempt - invalid password",
+                ip_address=request.META.get('REMOTE_ADDR', ''),
+                endpoint=request.path,
+                activity_type="create",
+                activity_category="management",
+                status_code=401,
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                timestamp=timezone.now()
+            )
+        except Exception:
+            logger.exception("Failed to create invalid-password ActivityLog")
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
     # Allow superusers or users with Admin/Manager status
     if not user.is_superuser and getattr(user, 'manager_admin_status', '') not in ['Admin', 'Manager']:
+        # Log access denied
+        try:
+            ActivityLog.objects.create(
+                user=user,
+                activity="Login attempt - insufficient permissions",
+                ip_address=request.META.get('REMOTE_ADDR', ''),
+                endpoint=request.path,
+                activity_type="create",
+                activity_category="management",
+                status_code=403,
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                timestamp=timezone.now()
+            )
+        except Exception:
+            logger.exception("Failed to create access-denied ActivityLog")
         return JsonResponse({'error': 'Access denied. Admin privileges required.'}, status=403)
 
     # Determine client IP (best-effort)
@@ -125,6 +185,7 @@ def login_view(request):
                     endpoint=request.path,
                     activity_type="update",
                     activity_category="management",
+                    status_code=202,
                     user_agent=request.META.get("HTTP_USER_AGENT", ""),
                     timestamp=timezone.now(),
                     related_object_id=user.id,
@@ -256,6 +317,7 @@ def login_view(request):
                         endpoint=request.path,
                         activity_type="update",
                         activity_category="management",
+                        status_code=200,
                         user_agent=request.META.get("HTTP_USER_AGENT", ""),
                         timestamp=timezone.now(),
                         related_object_id=user.id,

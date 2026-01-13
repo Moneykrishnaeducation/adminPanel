@@ -1652,6 +1652,7 @@ class ActivityLog(models.Model):
     )
     endpoint = models.CharField(max_length=255, blank=True, null=True)
     user_agent = models.CharField(max_length=255, blank=True, null=True)
+    status_code = models.IntegerField(blank=True, null=True, help_text="HTTP status code of the response")
     related_object_id = models.PositiveIntegerField(blank=True, null=True)
     related_object_type = models.CharField(max_length=50, blank=True, null=True)
     def __str__(self):
