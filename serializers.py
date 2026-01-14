@@ -157,7 +157,7 @@ class TransactionSerializer(serializers.ModelSerializer):
     # Allow admin_comment to be written to as well
     admin_comment = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     
-    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     username = serializers.CharField(source='trading_account.user.username', read_only=True)
     it_username=serializers.CharField(source='from_account.user.username', read_only=True)
     it_useremail=serializers.CharField(source='from_account.user.email', read_only=True)
