@@ -34,25 +34,22 @@ class TicketView(APIView):
                 target_user = None
                 if user_param:
                     try:
+                        # Try to find user by Django id first
                         target_user = User.objects.get(id=int(user_param))
                     except (User.DoesNotExist, ValueError):
-                        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+                        # Fallback: try to find by user_id field (custom field)
+                        try:
+                            target_user = User.objects.get(user_id=int(user_param))
+                        except (User.DoesNotExist, ValueError):
+                            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
                 else:
                     try:
                         target_user = User.objects.get(username=username_param)
                     except User.DoesNotExist:
                         return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
-                # Admins may view any user's tickets; managers may view their own or their clients' tickets
-                if request.user.manager_admin_status == 'Admin':
-                    tickets = Ticket.objects.filter(created_by=target_user)
-                else:
-                    # For managers: allow if target_user is them or one of their clients
-                    from django.db.models import Q
-                    if target_user == request.user or getattr(target_user, 'created_by', None) == request.user:
-                        tickets = Ticket.objects.filter(created_by=target_user)
-                    else:
-                        return Response({"error": "You don't have permission to view this user's tickets"}, status=status.HTTP_403_FORBIDDEN)
+                # Filter tickets for this user (created_by must match target_user)
+                tickets = Ticket.objects.filter(created_by=target_user)
             else:
                 # Default behavior: Admins see all tickets; managers/clients see their own and their clients'
                 if request.user.manager_admin_status == 'Admin':
