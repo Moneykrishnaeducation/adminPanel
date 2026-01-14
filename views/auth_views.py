@@ -30,6 +30,7 @@ from rest_framework.response import Response
 import os
 from rest_framework.permissions import IsAuthenticated
 from adminPanel.permissions import IsAdminOrManager
+from clientPanel.views.auth_views import get_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ def login_view(request):
             ActivityLog.objects.create(
                 user=None,
                 activity="Login attempt - missing email/username or password",
-                ip_address=request.META.get('REMOTE_ADDR', ''),
+                ip_address=get_client_ip(request),
                 endpoint=request.path,
                 activity_type="create",
                 activity_category="management",
@@ -129,7 +130,7 @@ def login_view(request):
             ActivityLog.objects.create(
                 user=None,
                 activity=f"Login attempt - user not found: {email}",
-                ip_address=request.META.get('REMOTE_ADDR', ''),
+                ip_address=get_client_ip(request),
                 endpoint=request.path,
                 activity_type="create",
                 activity_category="management",
@@ -148,7 +149,7 @@ def login_view(request):
             ActivityLog.objects.create(
                 user=user,
                 activity="Login attempt - invalid password",
-                ip_address=request.META.get('REMOTE_ADDR', ''),
+                ip_address=get_client_ip(request),
                 endpoint=request.path,
                 activity_type="create",
                 activity_category="management",
