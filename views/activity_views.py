@@ -30,6 +30,7 @@ from rest_framework.response import Response
 import os
 from django.core.cache import cache
 from rest_framework.permissions import IsAuthenticated
+from adminPanel.permissions import IsAdminOrManager
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,31 @@ def verify_otp(stored_hash, provided_otp):
             100000
         ).hex()
         return provided_hash == otp_hash
+    except Exception:
+        return False
+
+def hash_password(password):
+    """Hash password with salt for secure storage (hash+salt format)"""
+    salt = secrets.token_hex(16)  # Random 16-byte salt
+    password_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        password.encode('utf-8'),
+        salt.encode('utf-8'),
+        100000  # Iterations
+    )
+    return f"{salt}${password_hash.hex()}"
+
+def verify_password(stored_hash, provided_password):
+    """Verify provided password against stored hash+salt"""
+    try:
+        salt, password_hash = stored_hash.split('$')
+        provided_hash = hashlib.pbkdf2_hmac(
+            'sha256',
+            provided_password.encode('utf-8'),
+            salt.encode('utf-8'),
+            100000
+        ).hex()
+        return provided_hash == password_hash
     except Exception:
         return False
 
@@ -130,8 +156,8 @@ def login_view(request):
     if not user:
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
-    # Check password
-    if not user.check_password(password):
+    # Check password using hash+salt verification
+    if not verify_password(user.password, password):
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
     # Allow superusers or users with Admin/Manager status

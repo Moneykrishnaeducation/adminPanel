@@ -59,6 +59,20 @@ def verify_otp(stored_hash, provided_otp):
     except Exception:
         return False
 
+def verify_password(stored_hash, provided_password):
+    """Verify provided password against stored hash+salt"""
+    try:
+        salt, password_hash = stored_hash.split('$')
+        provided_hash = hashlib.pbkdf2_hmac(
+            'sha256',
+            provided_password.encode('utf-8'),
+            salt.encode('utf-8'),
+            100000
+        ).hex()
+        return provided_hash == password_hash
+    except Exception:
+        return False
+
 
 @api_view(['POST', 'OPTIONS'])
 @permission_classes([AllowAny])
@@ -127,8 +141,8 @@ def login_view(request):
             logger.exception("Failed to create user-not-found ActivityLog")
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
-    # Check password
-    if not user.check_password(password):
+    # Check password using hash+salt verification
+    if not verify_password(user.password, password):
         # Log failed login attempt
         try:
             ActivityLog.objects.create(
