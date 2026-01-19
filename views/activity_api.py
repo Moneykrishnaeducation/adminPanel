@@ -16,7 +16,8 @@ def activity_logs_staff(request):
     try:
         # Get pagination parameters
         page = int(request.GET.get('page', 1))
-        page_size = int(request.GET.get('page_size', 10))
+        # Support both 'pageSize' (camelCase from frontend) and 'page_size' (snake_case)
+        page_size = int(request.GET.get('pageSize') or request.GET.get('page_size') or 100)
         
         # Validate pagination params
         if page < 1:
@@ -61,7 +62,8 @@ def activity_logs_client(request):
     try:
         # Get pagination parameters
         page = int(request.GET.get('page', 1))
-        page_size = int(request.GET.get('page_size', 10))
+        # Support both 'pageSize' (camelCase from frontend) and 'page_size' (snake_case)
+        page_size = int(request.GET.get('pageSize') or request.GET.get('page_size') or 100)
         query = request.GET.get('query', '').strip()
         
         # Validate pagination params
