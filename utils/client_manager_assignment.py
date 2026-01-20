@@ -95,10 +95,9 @@ def get_unassigned_ib_clients(manager_user=None):
     Returns:
         QuerySet: Unassigned client users
     """
-    # Exclude IB users from unassigned clients
+    # Exclude IB users from unassigned clients - only check parent_ib, ignore created_by
     base_query = CustomUser.objects.filter(
         role='client',
-        created_by__isnull=True,
         IB_status=False,
         parent_ib__isnull=True
     )
@@ -113,19 +112,17 @@ def get_unassigned_ib_clients(manager_user=None):
         q_objects |= Q(parent_ib=manager_user)
         return base_query.filter(q_objects)
     else:
-        # Get all unassigned clients who have IB relationships, but exclude IBs
-        return base_query.filter(
-            Q(referral_code_used__isnull=False) | Q(parent_ib__isnull=True)
-        )
+        # Get all unassigned clients who don't have parent_ib set
+        return base_query
 
-def assign_client_to_manager(client_user, manager_user, force_reassign=False):
+def assign_client_to_manager(client_user, manager_user, force_reassign=True):
     """
     Manually assign a specific client to a manager.
     
     Args:
         client_user (CustomUser): The client to assign
         manager_user (CustomUser): The manager to assign to
-        force_reassign (bool): If True, reassign even if client already has a manager
+        force_reassign (bool): If True, reassign even if client already has a manager (default: True)
         
     Returns:
         dict: Result of the assignment
@@ -134,15 +131,24 @@ def assign_client_to_manager(client_user, manager_user, force_reassign=False):
         return {'error': 'User is not a client', 'success': False}
     if not manager_user.IB_status:
         return {'error': 'Target user is not an IB', 'success': False}
-    if not force_reassign and client_user.created_by is not None:
+    
+    # Check if client is already assigned to this specific parent IB
+    if client_user.parent_ib == manager_user:
         return {
-            'error': f'Client is already assigned to {client_user.created_by.email}',
+            'error': f'Client is already assigned to {manager_user.email}',
             'success': False,
-            'current_parent_ib': client_user.created_by.email
+            'current_parent_ib': manager_user.email
         }
-    old_parent_ib = client_user.created_by
-    client_user.created_by = manager_user
-    client_user.save(update_fields=['created_by'])
+    
+    if not force_reassign and client_user.parent_ib is not None:
+        return {
+            'error': f'Client is already assigned to {client_user.parent_ib.email}',
+            'success': False,
+            'current_parent_ib': client_user.parent_ib.email
+        }
+    old_parent_ib = client_user.parent_ib
+    client_user.parent_ib = manager_user
+    client_user.save(update_fields=['parent_ib'])
     result = {
         'success': True,
         'client_email': client_user.email,

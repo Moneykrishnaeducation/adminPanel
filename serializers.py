@@ -49,6 +49,7 @@ class UserSerializer(serializers.ModelSerializer):
     profile_image_url = serializers.SerializerMethodField()
     created_by_email = serializers.SerializerMethodField()
     parent_ib_email = serializers.SerializerMethodField()
+    available_commission = serializers.SerializerMethodField()
 
     def get_created_by_email(self, obj):
         return obj.created_by.email if obj.created_by else None
@@ -64,6 +65,29 @@ class UserSerializer(serializers.ModelSerializer):
     def get_total_clients(self, obj):
         # Count users where this IB is parent_ib
         return obj.clients.count() if hasattr(obj, 'clients') else 0
+    
+    def get_available_commission(self, obj):
+        """Get the withdrawable commission balance for IB users"""
+        if not obj.IB_status:
+            return 0
+        
+        # Calculate withdrawable balance using the same logic as statistics endpoint
+        try:
+            total_earnings = float(getattr(obj, 'total_earnings', 0) or 0)
+        except Exception:
+            try:
+                total_earnings = float(getattr(obj, 'earnings', 0) or 0)
+            except Exception:
+                total_earnings = 0.0
+
+        try:
+            total_withdrawals = float(getattr(obj, 'total_commission_withdrawals', 0) or 0)
+        except Exception:
+            total_withdrawals = 0.0
+
+        # Withdrawable balance = total earnings - total withdrawals
+        withdrawable_balance = total_earnings - total_withdrawals
+        return withdrawable_balance
 
     def get_profile_image_url(self, obj):
         request = self.context.get('request')
@@ -76,7 +100,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CustomUser
-        fields = '__all__'
+        fields = '_all_'
         extra_kwargs = {
             'password': {'write_only': True},
             'last_name': {'required': False, 'allow_blank': True},

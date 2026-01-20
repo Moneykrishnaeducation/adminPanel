@@ -151,11 +151,7 @@ def assign_specific_client_api(request):
                 'error': f'IB user not found with email: {manager_email}'
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # Set parent_ib and save
-        client_user.parent_ib = parent_ib_user
-        client_user.save(update_fields=['parent_ib'])
-
-        # Optionally call assign_client_to_manager if you need more logic
+        # Call assign_client_to_manager to handle the assignment logic
         result = assign_client_to_manager(client_user, parent_ib_user, force_reassign)
 
         if not result['success']:
