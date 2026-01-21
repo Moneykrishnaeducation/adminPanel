@@ -2296,6 +2296,13 @@ class ChatMessage(models.Model):
     )
     message = models.TextField()
     is_read = models.BooleanField(default=False)
+    # Store admin name for display when multiple admins are in the same chat
+    admin_sender_name = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Name of admin who sent the message (for display in multi-admin chats)"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

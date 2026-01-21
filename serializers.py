@@ -1200,6 +1200,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.SerializerMethodField()
     recipient_email = serializers.EmailField(source='recipient.email', read_only=True, allow_null=True)
     recipient_name = serializers.SerializerMethodField()
+    timestamp = serializers.DateTimeField(source='created_at', read_only=True)
     
     def get_sender_name(self, obj):
         return f"{obj.sender.first_name} {obj.sender.last_name}".strip() or obj.sender.email
@@ -1214,6 +1215,6 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sender', 'sender_email', 'sender_name', 'sender_type',
             'recipient', 'recipient_email', 'recipient_name', 'message',
-            'is_read', 'created_at', 'updated_at'
+            'is_read', 'admin_sender_name', 'timestamp', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'sender', 'sender_email', 'sender_name', 'recipient_email', 'recipient_name']
+        read_only_fields = ['id', 'timestamp', 'created_at', 'updated_at', 'sender', 'sender_email', 'sender_name', 'recipient_email', 'recipient_name']
