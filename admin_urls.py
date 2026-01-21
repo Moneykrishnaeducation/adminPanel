@@ -1,4 +1,4 @@
-from django.urls import path, re_path
+from django.urls import path, re_path, include
 from django.views.static import serve
 from django.conf import settings
 from django.conf.urls.static import static
@@ -65,6 +65,10 @@ from .views.verification_integration import (
 
 urlpatterns = [
     # API endpoints FIRST (most specific patterns first)
+    
+    # Chat endpoints
+    path('', include('brokerBackend.chat_urls')),
+    
     # Auth endpoints
     path('api/login/', login_view, name='api-login'),
     path('api/logout/', logout_view, name='api-logout'),

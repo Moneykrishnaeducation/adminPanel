@@ -220,6 +220,8 @@ from .views.ticket_views import TicketView, TicketDetailView
 logger = logging.getLogger(__name__)
 
 urlpatterns = [
+    # Chat endpoints
+    path('', include('brokerBackend.chat_urls')),
     # MT5 Webhook for instant commission creation (CRITICAL - must be accessible)
     path('api/v1/commission-creation/', CommissionCreationView, name='api-commission-creation-webhook'),
     

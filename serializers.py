@@ -1191,3 +1191,29 @@ class NewUserSignupSerializer(serializers.ModelSerializer):
         user.created_by = None
         user.save()
         return user
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    """
+    Serializer for live chat messages between admin and clients.
+    """
+    sender_email = serializers.EmailField(source='sender.email', read_only=True)
+    sender_name = serializers.SerializerMethodField()
+    recipient_email = serializers.EmailField(source='recipient.email', read_only=True, allow_null=True)
+    recipient_name = serializers.SerializerMethodField()
+    
+    def get_sender_name(self, obj):
+        return f"{obj.sender.first_name} {obj.sender.last_name}".strip() or obj.sender.email
+    
+    def get_recipient_name(self, obj):
+        if obj.recipient:
+            return f"{obj.recipient.first_name} {obj.recipient.last_name}".strip() or obj.recipient.email
+        return None
+    
+    class Meta:
+        model = ChatMessage
+        fields = [
+            'id', 'sender', 'sender_email', 'sender_name', 'sender_type',
+            'recipient', 'recipient_email', 'recipient_name', 'message',
+            'is_read', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'sender', 'sender_email', 'sender_name', 'recipient_email', 'recipient_name']

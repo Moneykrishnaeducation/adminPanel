@@ -2268,5 +2268,43 @@ class TradeGroup(models.Model):
 # Import Notification model
 from adminPanel.models_notification import Notification
 
-
-
+class ChatMessage(models.Model):
+    """
+    Model for live chat messages between admin and clients.
+    """
+    SENDER_CHOICES = [
+        ('admin', 'Admin'),
+        ('client', 'Client'),
+    ]
+    
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='chat_messages_sent'
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='chat_messages_received',
+        null=True,
+        blank=True
+    )
+    sender_type = models.CharField(
+        max_length=10,
+        choices=SENDER_CHOICES,
+        default='client'
+    )
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['sender', 'created_at']),
+            models.Index(fields=['recipient', 'is_read']),
+        ]
+    
+    def __str__(self):
+        return f"Chat: {self.sender.email} -> {self.recipient.email if self.recipient else 'Admin'} ({self.created_at})"
