@@ -1195,7 +1195,7 @@ class NewUserSignupSerializer(serializers.ModelSerializer):
 class ChatMessageSerializer(serializers.ModelSerializer):
     """
     Serializer for live chat messages between admin and clients.
-    Includes sender profile pictures from User model.
+    Includes sender profile pictures and image attachments.
     """
     sender_email = serializers.EmailField(source='sender.email', read_only=True)
     sender_name = serializers.SerializerMethodField()
@@ -1204,6 +1204,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     recipient_name = serializers.SerializerMethodField()
     recipient_profile_pic = serializers.SerializerMethodField()
     timestamp = serializers.DateTimeField(source='created_at', read_only=True)
+    image_url = serializers.SerializerMethodField()
     
     def get_sender_name(self, obj):
         return f"{obj.sender.first_name} {obj.sender.last_name}".strip() or obj.sender.email
@@ -1225,11 +1226,20 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             return str(obj.recipient.profile_pic)
         return None
     
+    def get_image_url(self, obj):
+        """Get the full URL of the chat image if it exists"""
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+    
     class Meta:
         model = ChatMessage
         fields = [
             'id', 'sender', 'sender_email', 'sender_name', 'sender_profile_pic', 'sender_type',
             'recipient', 'recipient_email', 'recipient_name', 'recipient_profile_pic', 'message',
-            'is_read', 'admin_sender_name', 'timestamp', 'created_at', 'updated_at'
+            'image', 'image_url', 'is_read', 'admin_sender_name', 'timestamp', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'timestamp', 'created_at', 'updated_at', 'sender', 'sender_email', 'sender_name', 'sender_profile_pic', 'recipient_email', 'recipient_name', 'recipient_profile_pic']
+        read_only_fields = ['id', 'timestamp', 'created_at', 'updated_at', 'sender', 'sender_email', 'sender_name', 'sender_profile_pic', 'recipient_email', 'recipient_name', 'recipient_profile_pic', 'image_url']

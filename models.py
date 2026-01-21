@@ -2296,6 +2296,13 @@ class ChatMessage(models.Model):
     )
     message = models.TextField()
     is_read = models.BooleanField(default=False)
+    # Image attachment for chat
+    image = models.ImageField(
+        upload_to='chat_images/',
+        null=True,
+        blank=True,
+        help_text="Optional image attachment in chat message"
+    )
     # Store admin name for display when multiple admins are in the same chat
     admin_sender_name = models.CharField(
         max_length=255,
