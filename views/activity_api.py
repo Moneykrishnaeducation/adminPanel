@@ -23,9 +23,13 @@ def activity_logs_staff(request):
         if page < 1:
             page = 1
         if page_size < 1:
-            page_size = 10
+            page_size = 50
         if page_size > 100:
             page_size = 100  # Max 100 per page
+        if page_size > 500:
+            page_size = 500  # Max 100 per page
+        if page_size > 1000:
+            page_size = 1000  # Max 100 per page
         
         # Get total count - show ALL management logs EXCEPT login errors and database errors
         total = ActivityLog.objects.filter(activity_category='management').exclude(
@@ -70,9 +74,13 @@ def activity_logs_client(request):
         if page < 1:
             page = 1
         if page_size < 1:
-            page_size = 10
+            page_size = 50
         if page_size > 100:
             page_size = 100  # Max 100 per page
+        if page_size > 500:
+            page_size = 500  # Max 100 per page
+        if page_size > 1000:
+            page_size = 1000  # Max 100 per page
         
         # Build base queryset - filtered by client category, showing ALL logs EXCEPT login and database errors
         # Login and database errors will only appear in Error Logs tab
@@ -142,7 +150,10 @@ def error_activity_logs(request):
             page_size = 50
         if page_size > 100:
             page_size = 100  # Max 100 per page
-        
+        if page_size > 500:
+            page_size = 500  # Max 100 per page
+        if page_size > 1000:
+            page_size = 1000
         # Step 1: Get LOGIN and DATABASE-RELATED error logs (status >= 400)
         # This includes: failed login attempts, wrong credentials, database connection errors, service unavailable
         # Excludes: OTP errors, update/delete operation errors, etc.
@@ -235,6 +246,10 @@ def ib_clients_activity_logs(request):
             page_size = 50
         if page_size > 100:
             page_size = 100  # Max 100 per page
+        if page_size > 500:
+            page_size = 500  # Max 100 per page
+        if page_size > 1000:
+            page_size = 1000 # Max 100 per page
         
         # Build queryset for IB clients' activity logs - all types
         queryset = ActivityLog.objects.filter(
