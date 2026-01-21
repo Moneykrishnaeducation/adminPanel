@@ -1195,26 +1195,41 @@ class NewUserSignupSerializer(serializers.ModelSerializer):
 class ChatMessageSerializer(serializers.ModelSerializer):
     """
     Serializer for live chat messages between admin and clients.
+    Includes sender profile pictures from User model.
     """
     sender_email = serializers.EmailField(source='sender.email', read_only=True)
     sender_name = serializers.SerializerMethodField()
+    sender_profile_pic = serializers.SerializerMethodField()
     recipient_email = serializers.EmailField(source='recipient.email', read_only=True, allow_null=True)
     recipient_name = serializers.SerializerMethodField()
+    recipient_profile_pic = serializers.SerializerMethodField()
     timestamp = serializers.DateTimeField(source='created_at', read_only=True)
     
     def get_sender_name(self, obj):
         return f"{obj.sender.first_name} {obj.sender.last_name}".strip() or obj.sender.email
+    
+    def get_sender_profile_pic(self, obj):
+        """Get the profile picture of the sender"""
+        if obj.sender and obj.sender.profile_pic:
+            return str(obj.sender.profile_pic)
+        return None
     
     def get_recipient_name(self, obj):
         if obj.recipient:
             return f"{obj.recipient.first_name} {obj.recipient.last_name}".strip() or obj.recipient.email
         return None
     
+    def get_recipient_profile_pic(self, obj):
+        """Get the profile picture of the recipient"""
+        if obj.recipient and obj.recipient.profile_pic:
+            return str(obj.recipient.profile_pic)
+        return None
+    
     class Meta:
         model = ChatMessage
         fields = [
-            'id', 'sender', 'sender_email', 'sender_name', 'sender_type',
-            'recipient', 'recipient_email', 'recipient_name', 'message',
+            'id', 'sender', 'sender_email', 'sender_name', 'sender_profile_pic', 'sender_type',
+            'recipient', 'recipient_email', 'recipient_name', 'recipient_profile_pic', 'message',
             'is_read', 'admin_sender_name', 'timestamp', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'timestamp', 'created_at', 'updated_at', 'sender', 'sender_email', 'sender_name', 'recipient_email', 'recipient_name']
+        read_only_fields = ['id', 'timestamp', 'created_at', 'updated_at', 'sender', 'sender_email', 'sender_name', 'sender_profile_pic', 'recipient_email', 'recipient_name', 'recipient_profile_pic']
