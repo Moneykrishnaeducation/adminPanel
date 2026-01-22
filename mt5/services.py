@@ -839,11 +839,20 @@ class MT5ManagerActions:
 
     @ensure_connected
     def change_master_password(self, login_id, master_pass):
+        """Change master password for MT5 account"""
         if self.manager.UserPasswordChange(0, int(login_id), str(master_pass)):
             return True
         print(MT5Manager.LastError())
         return False
 
+    @ensure_connected
+    def change_investor_password(self, login_id, investor_pass):
+        """Change investor password for MT5 account"""
+        if self.manager.UserPasswordChange(1, int(login_id), str(investor_pass)):
+            return True
+        print(MT5Manager.LastError())
+        return False
+    
     @ensure_connected
     def get_balance(self, login_id):
         try:

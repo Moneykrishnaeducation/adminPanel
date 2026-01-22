@@ -221,6 +221,13 @@ class MT5ManagerActions:
         return False
     
     @ensure_connected
+    def change_investor_password(self, login_id, investor_pass):
+        if self.manager.UserPasswordChange(1, int(login_id), str(investor_pass)):
+            return True
+        print(MT5Manager.LastError())
+        return False
+
+    @ensure_connected
     def get_balance(self, login_id):
         account = self.manager.UserAccountGet(int(login_id))
         if account:
