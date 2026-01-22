@@ -57,7 +57,18 @@ def mam_accounts_list(request):
         page = paginator.paginate_queryset(mam_accounts, request)
 
         serializer = TradingAccountSerializer(page, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        # Patch next/previous links to use request's host or be relative
+        response = paginator.get_paginated_response(serializer.data)
+        if hasattr(response, 'data'):
+            # Patch next/previous to be relative URLs
+            for key in ("next", "previous"):
+                url = response.data.get(key)
+                if url and url.startswith("http"):
+                    # Try to make it relative
+                    from urllib.parse import urlparse
+                    parsed = urlparse(url)
+                    response.data[key] = parsed.path + ("?" + parsed.query if parsed.query else "")
+        return response
 
     except Exception as e:
         return Response({
@@ -98,7 +109,8 @@ def investor_accounts_list(request):
         # Filter by MAM account
         mam_id = request.query_params.get('mam_id')
         if mam_id:
-            investor_accounts = investor_accounts.filter(mam_account__mam_id=mam_id)
+            # Use the correct field for filtering by MAM account
+            investor_accounts = investor_accounts.filter(mam_master_account__account_id=mam_id)
 
         # Sorting
         sort_by = request.query_params.get('sortBy', '-created_at')
@@ -116,7 +128,25 @@ def investor_accounts_list(request):
         page = paginator.paginate_queryset(investor_accounts, request)
 
         serializer = TradingAccountSerializer(page, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        # Always return paginated response, even if empty
+        if page is not None:
+            response = paginator.get_paginated_response(serializer.data)
+            if hasattr(response, 'data'):
+                for key in ("next", "previous"):
+                    url = response.data.get(key)
+                    if url and url.startswith("http"):
+                        from urllib.parse import urlparse
+                        parsed = urlparse(url)
+                        response.data[key] = parsed.path + ("?" + parsed.query if parsed.query else "")
+            return response
+        else:
+            # If pagination fails, return empty paginated structure
+            return Response({
+                "count": 0,
+                "next": None,
+                "previous": None,
+                "results": []
+            }, status=status.HTTP_200_OK)
 
     except Exception as e:
         return Response({
