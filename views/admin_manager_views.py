@@ -89,9 +89,9 @@ except ImportError:
     get_manager_instance = None
 
 @api_view(['GET', 'HEAD'])
-@permission_classes([IsAuthenticated, IsSuperuser])
+@permission_classes([IsAuthenticated, IsAdminOrManager])
 def list_admin_managers(request):
-    """List all admin and manager users - Superusers only"""
+    """List all admin and manager users"""
     try:
         # Get users with admin or manager roles or with is_staff=True
         logger.info("Fetching admin/manager users")
