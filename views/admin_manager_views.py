@@ -203,18 +203,22 @@ def create_admin_manager(request):
         
         # Create user with random password
         from adminPanel.urls import generate_password
-        password = generate_password(12)
+        temp_password = generate_password(12)
+        
+        # Hash password with salt+hash format (same as signup/reset password in client)
+        from clientPanel.views.auth_views import hash_password
+        hashed_password = hash_password(temp_password)
         
         # Create user with admin or manager role
-        user = CustomUser.objects.create_user(
+        user = CustomUser.objects.create(
             username=username,
             email=data['email'],
-            password=password,
+            password=hashed_password,  # Use hashed password
             first_name=data['first_name'],
             last_name=data['last_name'],
             is_staff=True if data['role'] == 'admin' else False,
             is_active=True,
-            manager_admin_status=data['manager_admin_status'],
+            manager_admin_status=data.get('manager_admin_status', data['role']),
             role=data['role'].lower(),
             phone_number=data.get('phone_number', ''),
             address=data.get('address', '')
@@ -224,7 +228,7 @@ def create_admin_manager(request):
             'success': True,
             'message': 'Admin/manager created successfully',
             'user_id': user.id,
-            'temp_password': password
+            'temp_password': temp_password
         })
     except Exception as e:
         logger.error(f"Error creating admin/manager: {str(e)}")
