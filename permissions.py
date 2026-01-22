@@ -116,3 +116,16 @@ class IsAdminOrManager(IsAuthenticatedUser):
             return any(role in status for role in ['admin', 'manager'])
             
         return False
+
+
+class IsSuperuser(IsAuthenticatedUser):
+    """
+    Allow access to superusers only.
+    Stricter than IsAdmin - requires is_superuser=True.
+    """
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        
+        # Only allow superusers
+        return request.user.is_superuser

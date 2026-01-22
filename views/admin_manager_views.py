@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.db.models import Q
 from adminPanel.models import CustomUser, TradeGroup, TradingAccount
 from adminPanel.serializers import UserSerializer, TradingAccountSerializer
-from adminPanel.permissions import IsAdmin, IsManager, IsAdminOrManager
+from adminPanel.permissions import IsAdmin, IsManager, IsAdminOrManager, IsSuperuser
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +89,9 @@ except ImportError:
     get_manager_instance = None
 
 @api_view(['GET', 'HEAD'])
-@permission_classes([IsAuthenticated, IsAdmin])
+@permission_classes([IsAuthenticated, IsSuperuser])
 def list_admin_managers(request):
-    """List all admin and manager users"""
+    """List all admin and manager users - Superusers only"""
     try:
         # Get users with admin or manager roles or with is_staff=True
         logger.info("Fetching admin/manager users")
