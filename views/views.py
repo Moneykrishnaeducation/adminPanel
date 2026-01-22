@@ -905,10 +905,23 @@ def create_user_view(request):
             # Admins may optionally pass a manager_id to assign the client
             enforced_status = data.get('manager_admin_status', 'Client')
 
-        # Create the user
-        user = CustomUser.objects.create_user(
+        # Hash password using the custom format (salt$hash.hex()) for compatibility with verify_password()
+        import hashlib
+        import secrets
+        raw_password = data.get('password')
+        salt = secrets.token_hex(16)  # Random 16-byte salt
+        password_hash = hashlib.pbkdf2_hmac(
+            'sha256',
+            raw_password.encode('utf-8'),
+            salt.encode('utf-8'),
+            100000  # Iterations - must match verify_password() function
+        )
+        hashed_password = f"{salt}${password_hash.hex()}"
+
+        # Create the user without using create_user() to avoid Django's default hashing
+        user = CustomUser(
             email=email,
-            password=data.get('password'),
+            password=hashed_password,  # Store the pre-hashed password
             dob=data.get('dob') if data.get('dob') else None,
             first_name=data.get('first_name', ''),
             last_name=data.get('last_name', ''),
@@ -920,6 +933,7 @@ def create_user_view(request):
             verification_status=data.get('verification_status', 'pending'),
             manager_admin_status=enforced_status
         )
+        user.save()
 
         # If the requester is a manager, assign the created user to that manager
         if requester_is_manager:
