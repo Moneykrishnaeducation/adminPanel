@@ -181,7 +181,7 @@ class TransactionSerializer(serializers.ModelSerializer):
     # Allow admin_comment to be written to as well
     admin_comment = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     
-    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
+    user_id = serializers.IntegerField(source='trading_account.user.user_id', read_only=True)
     username = serializers.CharField(source='trading_account.user.username', read_only=True)
     it_username=serializers.CharField(source='from_account.user.username', read_only=True)
     it_useremail=serializers.CharField(source='from_account.user.email', read_only=True)
@@ -1048,6 +1048,11 @@ class BankDetailsRequestSerializer(serializers.ModelSerializer):
     branch = serializers.CharField(source='branch_name', read_only=True)
     user = serializers.CharField(source='user.username', read_only=True)
     user_email = serializers.EmailField(source='user.email', read_only=True)
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
+    user_name = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.CharField(source='user.email', read_only=True)
+    branch_name = serializers.CharField(read_only=True)
+    bank_doc = serializers.FileField(read_only=True)
     
     class Meta:
         model = BankDetailsRequest
@@ -1069,22 +1074,18 @@ class BankDetailsRequestSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "user", "user_email", "status", "created_at", "updated_at"]
-    user_id = serializers.IntegerField(source='user.id', read_only=True)
-    user_name = serializers.CharField(source='user.username', read_only=True)
-    email = serializers.CharField(source='user.email', read_only=True)
-    branch_name = serializers.CharField(read_only=True)
-    bank_doc = serializers.FileField(read_only=True)
         
 class IBRequestSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
     useremail = serializers.EmailField(source='user.email', read_only=True)
     class Meta:
         model = IBRequest
-        fields = '__all__'
+        fields = ['id', 'user_id', 'username', 'useremail', 'user', 'status', 'created_at', 'updated_at']
 
 class ChangeRequestSerializer(serializers.ModelSerializer):
     # user = serializers.CharField(source='user.username', read_only=True)
-    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     user_name = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     requested_changes = serializers.JSONField(source='requested_data', read_only=True)
@@ -1098,7 +1099,7 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ['user', 'user_email', 'status', 'created_at', 'reviewed_at']
 
 class UserDocumentSerializer(serializers.ModelSerializer):
-    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     user_name = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     id_proof = serializers.SerializerMethodField()
