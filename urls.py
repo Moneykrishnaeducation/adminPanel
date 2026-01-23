@@ -337,6 +337,13 @@ urlpatterns = [
     path('api/verify-otp/', csrf_exempt(client_auth_views.VerifyOtpView.as_view()), name='api-verify-otp'),
     path('api/resend-login-otp/', csrf_exempt(client_auth_views.resend_login_otp_view), name='api-resend-login-otp'),
     path('api/login-otp-status/', csrf_exempt(client_auth_views.login_otp_status_view), name='api-login-otp-status'),
+    # Forgot password endpoints (for admin reset password feature)
+    path('api/send-reset-otp/', csrf_exempt(client_auth_views.send_reset_otp_view), name='api-send-reset-otp'),
+    path('api/reset-password/', csrf_exempt(client_auth_views.confirm_reset_password_view), name='api-reset-password'),
+    # Client API prefix for compatibility
+    path('client/api/send-reset-otp/', csrf_exempt(client_auth_views.send_reset_otp_view), name='client-api-send-reset-otp'),
+    path('client/api/verify-otp/', csrf_exempt(client_auth_views.VerifyOtpView.as_view()), name='client-api-verify-otp'),
+    path('client/api/reset-password/', csrf_exempt(client_auth_views.confirm_reset_password_view), name='client-api-reset-password'),
     
     # Client session management
     
