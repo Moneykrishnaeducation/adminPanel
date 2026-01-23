@@ -12,7 +12,7 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 
 from adminPanel.models import CustomUser, ActivityLog
-from adminPanel.permissions import IsAdmin, IsManager, OrPermission
+from adminPanel.permissions import IsAdmin, IsManager, OrPermission, IsSuperuser
 from adminPanel.EmailSender import EmailSender
 from adminPanel.views.views import get_client_ip
 from rest_framework.permissions import IsAuthenticated
@@ -24,7 +24,7 @@ class BroadcastEmailView(APIView):
     """
     API view to send broadcast emails to all active users or specified recipients.
     """
-    permission_classes = [OrPermission(IsAdmin, IsManager)]
+    permission_classes = [IsSuperuser]
 
     def post(self, request):
         """
@@ -211,7 +211,7 @@ class SingleEmailView(APIView):
     """
     API view to send email to a single recipient or specific list of recipients.
     """
-    permission_classes = [OrPermission(IsAdmin, IsManager)]
+    permission_classes = [IsSuperuser]
 
     def post(self, request):
         """

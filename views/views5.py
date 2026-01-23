@@ -719,7 +719,7 @@ class ServerSettingsAPIView(APIView):
     PUT: Update server settings
     POST: Update server settings (same as PUT for compatibility)
     """
-    permission_classes = [AllowAny]  # <-- Replace with IsAdmin after testing
+    permission_classes = [IsSuperuser]
     http_method_names = ['get', 'put', 'post', 'head', 'options']
 
     def get(self, request):
