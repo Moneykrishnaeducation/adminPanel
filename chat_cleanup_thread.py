@@ -42,21 +42,20 @@ class ChatCleanupThread:
         logger.info("Chat cleanup thread stopped")
     
     def _run_loop(self):
-        """Main loop that runs cleanup every 5 minutes (for testing)"""
+        """Main loop that runs cleanup every hour"""
         while not self.stop_event.is_set():
             try:
-                # Check if it's time to run cleanup (every 5 minutes)
+                # Check if it's time to run cleanup (every hour at minute 0)
                 now = timezone.now()
                 
-                # Calculate seconds until next 5-minute interval
-                seconds_passed_in_interval = (now.minute % 5) * 60 + now.second
-                seconds_to_next_interval = 300 - seconds_passed_in_interval
+                # Calculate seconds until the next hour
+                seconds_to_next_hour = 3600 - (now.minute * 60 + now.second)
                 
                 # Log the schedule
-                logger.debug(f"Chat cleanup: Next run in {seconds_to_next_interval} seconds (every 5 minutes)")
+                logger.debug(f"Chat cleanup: Next run in {seconds_to_next_hour} seconds (at next hour)")
                 
-                # Wait until next 5-minute interval or until stop is signaled
-                if self.stop_event.wait(timeout=seconds_to_next_interval):
+                # Wait until next hour or until stop is signaled
+                if self.stop_event.wait(timeout=seconds_to_next_hour):
                     break  # Stop was called
                 
                 # Run cleanup task
@@ -68,19 +67,19 @@ class ChatCleanupThread:
                 self.stop_event.wait(timeout=60)
     
     def _cleanup_old_messages(self):
-        """Delete chat messages older than 5 minutes (for testing)"""
+        """Delete chat messages older than 24 hours"""
         try:
             from adminPanel.models import ChatMessage
             
-            # Calculate the cutoff time (5 minutes ago for testing)
-            cutoff_time = timezone.now() - timedelta(minutes=5)
+            # Calculate the cutoff time (24 hours ago)
+            cutoff_time = timezone.now() - timedelta(hours=24)
             
-            # Get messages older than 5 minutes
+            # Get messages older than 24 hours
             old_messages = ChatMessage.objects.filter(created_at__lt=cutoff_time)
             deleted_count, _ = old_messages.delete()
             
             if deleted_count > 0:
-                logger.info(f"Chat cleanup: Deleted {deleted_count} message(s) older than 5 minutes")
+                logger.info(f"Chat cleanup: Deleted {deleted_count} message(s) older than 24 hours")
                 logger.debug(f"Cutoff time: {cutoff_time.isoformat()}")
             else:
                 logger.debug("Chat cleanup: No messages to delete")
