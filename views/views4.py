@@ -546,7 +546,7 @@ class AvailableGroupsView(APIView):
     """
     Fetch available trading groups dynamically from MT5 manager.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsSuperuser]
     
     def get(self, request):
         import logging
@@ -1248,7 +1248,7 @@ class UpdateTradingGroupSettingsView(APIView):
     """
     Update individual trading group settings (enable/disable, alias, role)
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperuser]
     
     def post(self, request):
         import logging
@@ -1316,7 +1316,7 @@ class CurrentGroupConfigurationView(APIView):
     """
     Get current group configuration showing default, demo, and enabled groups
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperuser]
     
     def get(self, request):
         import logging

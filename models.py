@@ -1617,9 +1617,9 @@ class BankDetails(models.Model):
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="bank_details")
     bank_name = models.CharField(max_length=255)
-    account_number = models.CharField(max_length=20)
+    account_number = models.CharField(max_length=50)
     branch_name = models.CharField(max_length=255)  # Changed from branch
-    ifsc_code = models.CharField(max_length=11)
+    ifsc_code = models.CharField(max_length=50) 
     bank_doc = models.FileField(upload_to='documents/bank_docs/', null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True, null=True)
@@ -1825,10 +1825,10 @@ class BankDetailsRequest(models.Model):
         related_name="bank_detail_requests"
     )
     bank_name = models.CharField(max_length=255)
-    account_number = models.CharField(max_length=20)
+    account_number = models.CharField(max_length=50)
     branch_name = models.CharField(max_length=255, blank=True, null=True)  # Added for serializer compatibility
     bank_doc = models.FileField(upload_to='documents/bank_docs/', blank=True, null=True)  # Added for serializer compatibility
-    ifsc_code = models.CharField(max_length=11)
+    ifsc_code = models.CharField(max_length=50)
     status = models.CharField(
         max_length=10,
         choices=[("PENDING", "Pending"), ("APPROVED", "Approved"), ("REJECTED", "Rejected")],
