@@ -12,8 +12,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 class TradingAccountsPagination(PageNumberPagination):
-    page_size = 100
-    page_size_query_param = 'page_size'
+    page_size = 10
+    page_size_query_param = 'pageSize'
     max_page_size = 1000
 
 @api_view(['GET'])
@@ -65,8 +65,15 @@ def trading_accounts_list(request):
         page = paginator.paginate_queryset(trading_accounts, request)
         # Serialize the data
         serializer = TradingAccountSerializer(page, many=True)
-        # Return paginated response
-        return paginator.get_paginated_response(serializer.data)
+        # Return paginated response in frontend-expected format
+        total = paginator.page.paginator.count if hasattr(paginator, 'page') and hasattr(paginator.page, 'paginator') else trading_accounts.count()
+        return Response({
+            "data": serializer.data,
+            "total": total,
+            "count": total,
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link()
+        })
     except Exception as e:
         return Response({
             "error": str(e),
