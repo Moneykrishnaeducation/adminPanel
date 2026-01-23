@@ -390,7 +390,8 @@ def login_view(request):
         'user': {
             'name': user_name,
             'email': user.email,
-            'role': getattr(user, 'manager_admin_status', 'Admin').lower()
+            'role': getattr(user, 'manager_admin_status', 'Admin').lower(),
+            'is_superuser': user.is_superuser
         },
         'redirect_url': redirect_url
     }
