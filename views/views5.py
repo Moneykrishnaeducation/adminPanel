@@ -78,7 +78,7 @@ class LatestTradingAccountGroupView(APIView):
     """
     Fetch the latest TradingAccountGroup object excluding demo groups.
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperuser]
 
     def get(self, request):
         try:
@@ -96,7 +96,7 @@ class UpdateTradingGroupView(APIView):
     """
     Update the selected trading group for a specific trading account.
     """
-    permission_classes = [IsAdmin]
+    permission_classes = [IsSuperuser]
 
     def post(self, request):
         account_id = request.data.get("account_id")

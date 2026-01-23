@@ -549,7 +549,7 @@ def update_trading_group(request):
         )
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsAdmin])
+@permission_classes([IsAuthenticated, IsSuperuser])
 def save_group_configuration(request):
     """Save group configuration with default, demo, and visibility settings"""
     try:
@@ -726,7 +726,7 @@ def save_group_configuration(request):
         )
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, IsAdmin])
+@permission_classes([IsAuthenticated, IsSuperuser])
 def current_group_config(request):
     """Get the current group configuration including default and demo groups"""
     try:
