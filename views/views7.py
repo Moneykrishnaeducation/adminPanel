@@ -919,16 +919,16 @@ def ib_clients_deposit_transactions(request):
             ib_clients = authenticated_user.clients.all()
             if not ib_clients.exists():
                 return Response({
-                    "error": "User is not an IB parent or has no clients",
-                    "user": authenticated_user.username,
-                    "ib_status": getattr(authenticated_user, 'IB_status', False)
-                }, status=status.HTTP_403_FORBIDDEN)
+                    "data": [],
+                    "total": 0,
+                    "message": "You don't have IB client access"
+                }, status=status.HTTP_200_OK)
         except (AttributeError, Exception):
             return Response({
-                "error": "User is not an IB parent or has no clients",
-                "user": authenticated_user.username,
-                "ib_status": getattr(authenticated_user, 'IB_status', False)
-            }, status=status.HTTP_403_FORBIDDEN)
+                "data": [],
+                "total": 0,
+                "message": "You don't have IB client access"
+            }, status=status.HTTP_200_OK)
         
         # Get all clients under this IB parent
         ib_clients = authenticated_user.clients.all()
@@ -1009,10 +1009,10 @@ def ib_clients_withdrawal_transactions(request):
         # Check if the user is an IB (has clients)
         if not hasattr(authenticated_user, 'clients') or authenticated_user.clients.count() == 0:
             return Response({
-                "error": "User is not an IB parent or has no clients",
-                "user": authenticated_user.username,
-                "ib_status": getattr(authenticated_user, 'IB_status', False)
-            }, status=status.HTTP_403_FORBIDDEN)
+                "data": [],
+                "total": 0,
+                "message": "You don't have IB client access"
+            }, status=status.HTTP_200_OK)
         
         # Get all clients under this IB parent
         ib_clients = authenticated_user.clients.all()
@@ -1094,10 +1094,10 @@ def ib_clients_internal_transfer_transactions(request):
         # Check if the user is an IB (has clients)
         if not hasattr(authenticated_user, 'clients') or authenticated_user.clients.count() == 0:
             return Response({
-                "error": "User is not an IB parent or has no clients",
-                "user": authenticated_user.username,
-                "ib_status": getattr(authenticated_user, 'IB_status', False)
-            }, status=status.HTTP_403_FORBIDDEN)
+                "data": [],
+                "total": 0,
+                "message": "You don't have IB client access"
+            }, status=status.HTTP_200_OK)
         
         # Get all clients under this IB parent
         ib_clients = authenticated_user.clients.all()
