@@ -305,6 +305,9 @@ def pending_deposits_view(request):
             status='pending'
         ).select_related('user', 'trading_account')
         
+        # Exclude CheesePay transactions
+        deposits = deposits.exclude(source='CheesePay')
+        
         # Apply date filters if provided
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
@@ -357,6 +360,7 @@ def pending_withdrawals_view(request):
             status='pending',
             transaction_type__in=['withdrawal', 'withdraw_trading', 'commission_withdrawal']
         ).select_related('user', 'trading_account')
+        
         
         # Apply date filters if provided
         start_date = request.GET.get('start_date')

@@ -142,7 +142,7 @@ class ActivityLogListView(APIView):
                 )
 
             paginator = PageNumberPagination()
-            paginator.page_size = request.GET.get('pageSize', 10)
+            paginator.page_size = int(request.GET.get('page_size', 10))
             paginated_logs = paginator.paginate_queryset(activity_logs.order_by('-timestamp'), request)
 
             serializer = ActivityLogSerializer(paginated_logs, many=True)
@@ -646,7 +646,7 @@ class BankDetailsRequestsView(APIView):
             requests = requests.order_by(f'-{sort_by}')
 
         paginator = PageNumberPagination()
-        paginator.page_size = int(request.query_params.get('pageSize', 10))
+        paginator.page_size = int(request.query_params.get('page_size', 10))
         paginated_requests = paginator.paginate_queryset(requests, request)
 
         serializer = BankDetailsRequestSerializer(paginated_requests, many=True)
@@ -1105,7 +1105,7 @@ class PendingWithdrawalRequestsView(APIView):
             transactions = transactions.order_by(f'-{sort_by}')
 
         paginator = PageNumberPagination()
-        paginator.page_size = int(request.query_params.get('pageSize', 10))
+        paginator.page_size = int(request.query_params.get('page_size', 10))
         paginated_transactions = paginator.paginate_queryset(transactions, request)
 
         serializer = TransactionSerializer(paginated_transactions, many=True)
@@ -1260,7 +1260,7 @@ class CryptoDetailsRequestsView(APIView):
             crypto_details = crypto_details.order_by(f'-{sort_by}')
 
         paginator = PageNumberPagination()
-        paginator.page_size = int(request.query_params.get('pageSize', 10))
+        paginator.page_size = int(request.query_params.get('page_size', 10))
         paginated_crypto = paginator.paginate_queryset(crypto_details, request)
 
         serializer = CryptoDetailsSerializer(paginated_crypto, many=True)
@@ -1380,7 +1380,7 @@ class PendingDepositRequestsView(APIView):
             transactions = transactions.order_by(f'-{sort_by}')
 
         paginator = PageNumberPagination()
-        paginator.page_size = int(request.query_params.get('pageSize', 10))
+        paginator.page_size = int(request.query_params.get('page_size', 10))
         paginated_transactions = paginator.paginate_queryset(transactions, request)
 
         serializer = TransactionSerializer(paginated_transactions, many=True)
@@ -1417,7 +1417,7 @@ class PendingUSDTTransactionsView(APIView):
             transactions = transactions.order_by(f'-{sort_by}')
 
         paginator = PageNumberPagination()
-        paginator.page_size = int(request.query_params.get('pageSize', 10))
+        paginator.page_size = int(request.query_params.get('page_size', 10))
         paginated_transactions = paginator.paginate_queryset(transactions, request)
 
         serializer = TransactionSerializer(paginated_transactions, many=True)
@@ -1638,7 +1638,7 @@ def unapproved_users_list(request):
         
         # Get pagination parameters
         page = request.GET.get('page', 1)
-        page_size = request.GET.get('pageSize', 10)
+        page_size = request.GET.get('page_size', 10)
         
         try:
             page = int(page)
@@ -1667,7 +1667,7 @@ def unapproved_users_list(request):
             'results': serializer.data,
             'total': total,
             'page': page,
-            'pageSize': page_size,
+            'page_size': page_size,
             'totalPages': (total + page_size - 1) // page_size
         }, status=status.HTTP_200_OK)
         
