@@ -573,6 +573,7 @@ class DepositView(APIView):
             start_date = request.GET.get('start_date')
             end_date = request.GET.get('end_date')
             qs = Transaction.objects.filter(transaction_type='deposit_trading')
+            qs = qs.exclude(Q(source='CheesePay') & Q(status__in=['pending', 'failed']))
             if start_date:
                 qs = qs.filter(created_at__date__gte=start_date)
             if end_date:
@@ -945,6 +946,7 @@ def ib_clients_deposit_transactions(request):
             user_id__in=client_ids,
             transaction_type='deposit_trading'
         )
+        qs = qs.exclude(Q(source='CheesePay') & Q(status__in=['pending', 'failed']))
         
         # Apply date filters if provided
         if start_date:

@@ -80,6 +80,9 @@ def get_recent_deposits(request):
                 user__created_by=user
             ).order_by('-created_at')
 
+        # Exclude CheesePay transactions and only include approved deposits
+        deposits = deposits.exclude(Q(source='CheesePay') & Q(status__in=['pending', 'failed']))
+
         # Apply search filtering (username, email, trading account id, id, description)
         if search:
             deposits = deposits.filter(
@@ -233,7 +236,9 @@ def admin_transactions_list(request):
         else:
             # For managers, only show transactions of their assigned clients (created_by)
             transactions = Transaction.objects.filter(user__created_by=user)
-        
+
+        # Exclude CheesePay transactions and only include approved transactions
+            transactions = transactions.exclude(Q(source='CheesePay') & Q(status__in=['pending', 'failed']))
         # Filter by transaction type
         if transaction_type == 'deposits':
             transactions = transactions.filter(
