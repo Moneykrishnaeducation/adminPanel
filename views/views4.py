@@ -546,7 +546,7 @@ class AvailableGroupsView(APIView):
     """
     Fetch available trading groups dynamically from MT5 manager.
     """
-    permission_classes = [IsSuperuser]
+    permission_classes = [IsAdmin]
     
     def get(self, request):
         import logging
