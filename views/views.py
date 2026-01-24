@@ -889,6 +889,16 @@ def create_user_view(request):
                 'error': 'A user with this email already exists'
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        # Validate against disposable/temporary email providers
+        try:
+            from adminPanel.utils.email_validation import validate_signup_email
+            validate_signup_email(email)
+        except ValueError:
+            return Response({'error': 'Disposable or temporary email addresses are not allowed'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            # If the validator fails unexpectedly, allow continuation rather than blocking all signups
+            pass
+
 
         # Determine if requester is a manager
         requester_is_manager = False

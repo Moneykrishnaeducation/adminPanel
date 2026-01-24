@@ -1184,14 +1184,27 @@ class NewUserSignupSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
     def create(self, validated_data):
-        user = CustomUser(
+        # Validate signup email against disposable provider list
+        try:
+            from adminPanel.utils.email_validation import validate_signup_email
+            validate_signup_email(validated_data["email"])
+        except ValueError:
+            raise serializers.ValidationError({
+                "email": "Disposable or temporary email addresses are not allowed"
+            })
+        except Exception:
+            # Non-fatal: if validator fails unexpectedly, proceed with caution
+            pass
+
+        # Use manager's create_user so password hashing is handled consistently
+        user = CustomUser.objects.create_user(
+            email=validated_data["email"],
+            password=validated_data["password"],
             first_name=validated_data["first_name"],
             last_name=validated_data["last_name"],
-            email=validated_data["email"],
             phone_number=validated_data["phone_number"],
             dob=validated_data.get("dob"),
         )
-        user.set_password(validated_data["password"])
         user.manager_admin_status = "None"
         user.created_by = None
         user.save()

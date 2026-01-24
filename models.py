@@ -669,6 +669,18 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError("The Email field must be set")
         email = self.normalize_email(email)
+
+        # Validate against disposable/temporary email providers
+        try:
+            from adminPanel.utils.email_validation import validate_signup_email
+            validate_signup_email(email)
+        except ValueError:
+            raise
+        except Exception:
+            # If the validation utility fails for any unexpected reason,
+            # allow creation to proceed rather than blocking all signups.
+            pass
+
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
