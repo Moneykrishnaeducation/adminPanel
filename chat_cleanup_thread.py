@@ -42,24 +42,19 @@ class ChatCleanupThread:
         logger.info("Chat cleanup thread stopped")
     
     def _run_loop(self):
-        """Main loop that runs cleanup every hour"""
+        """Main loop that runs cleanup every 5 minutes to check for messages 24 hours old"""
         while not self.stop_event.is_set():
             try:
-                # Check if it's time to run cleanup (every hour at minute 0)
-                now = timezone.now()
-                
-                # Calculate seconds until the next hour
-                seconds_to_next_hour = 3600 - (now.minute * 60 + now.second)
-                
-                # Log the schedule
-                logger.debug(f"Chat cleanup: Next run in {seconds_to_next_hour} seconds (at next hour)")
-                
-                # Wait until next hour or until stop is signaled
-                if self.stop_event.wait(timeout=seconds_to_next_hour):
-                    break  # Stop was called
-                
-                # Run cleanup task
+                # Run cleanup task every 5 minutes to catch messages at their 24-hour mark
                 self._cleanup_old_messages()
+                
+                # Wait 5 minutes before next check (300 seconds)
+                # This ensures we catch messages within 5 minutes of their 24-hour creation time
+                logger.debug("Chat cleanup: Next check in 5 minutes")
+                
+                # Wait 5 minutes before next check or until stop is signaled
+                if self.stop_event.wait(timeout=300):
+                    break  # Stop was called
                 
             except Exception as e:
                 logger.error(f"Error in chat cleanup thread loop: {e}")
@@ -67,11 +62,12 @@ class ChatCleanupThread:
                 self.stop_event.wait(timeout=60)
     
     def _cleanup_old_messages(self):
-        """Delete chat messages older than 24 hours"""
+        """Delete chat messages exactly 24 hours after they were created"""
         try:
             from adminPanel.models import ChatMessage
             
-            # Calculate the cutoff time (24 hours ago)
+            # Calculate the cutoff time (messages older than 24 hours from now)
+            # If a message was created at 01:00, it will be deleted when current time > 01:00 (next day)
             cutoff_time = timezone.now() - timedelta(hours=24)
             
             # Get messages older than 24 hours
@@ -79,16 +75,16 @@ class ChatCleanupThread:
             deleted_count, _ = old_messages.delete()
             
             if deleted_count > 0:
-                logger.info(f"Chat cleanup: Deleted {deleted_count} message(s) older than 24 hours")
-                logger.debug(f"Cutoff time: {cutoff_time.isoformat()}")
+                logger.info(f"Chat cleanup: Deleted {deleted_count} message(s) that are 24+ hours old")
+                logger.debug(f"Cutoff time: {cutoff_time.isoformat()} - Messages created before this time were deleted")
             else:
-                logger.debug("Chat cleanup: No messages to delete")
+                logger.debug("Chat cleanup: No messages older than 24 hours to delete")
             
             return {
                 'success': True,
                 'deleted_count': deleted_count,
                 'cutoff_time': cutoff_time.isoformat(),
-                'hours': 24,
+                'cleanup_type': 'auto_24hours',
                 'timestamp': timezone.now().isoformat()
             }
         
