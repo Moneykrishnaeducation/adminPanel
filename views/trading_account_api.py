@@ -5,6 +5,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from adminPanel.models import TradingAccount
 from adminPanel.serializers import TradingAccountSerializer
 from adminPanel.mt5.services import MT5ManagerActions
+from django.core.mail import EmailMessage
+from django.template.loader import render_to_string
+from django.conf import settings
 
 class ListAccountsByTypeView(APIView):
     permission_classes = [AllowAny]
@@ -136,3 +139,68 @@ class InternalTransferSubmitView(APIView):
             'to_balance': new_to_balance,
             'transaction_id': transaction.id
         }, status=status.HTTP_200_OK)
+
+
+class SendTransferNotificationView(APIView):
+    permission_classes = [IsAuthenticated]
+    """
+    API endpoint to send transfer notification emails to both from and to account holders.
+    If both accounts belong to same user (same email), send only one email.
+    If different users, send email to both.
+    """
+    def post(self, request):
+        try:
+            recipients = request.data.get('recipients', [])
+            from_account = request.data.get('from_account', 'N/A')
+            from_account_number = request.data.get('from_account_number', 'N/A')
+            to_account = request.data.get('to_account', 'N/A')
+            to_account_number = request.data.get('to_account_number', 'N/A')
+            amount = request.data.get('amount', 0)
+            note = request.data.get('note', '')
+            
+            if not recipients:
+                return Response({'success': False, 'error': 'No recipients provided'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Remove duplicates while preserving order
+            unique_recipients = list(dict.fromkeys(recipients))
+            
+            # Prepare email context
+            email_context = {
+                'from_account': from_account,
+                'from_account_number': from_account_number,
+                'to_account': to_account,
+                'to_account_number': to_account_number,
+                'amount': amount,
+                'note': note,
+                'transfer_type': 'Internal Transfer Notification'
+            }
+            
+            # Send email to each unique recipient
+            for recipient_email in unique_recipients:
+                subject = f"Internal Transfer Notification - {amount} transferred"
+                
+                html_message = render_to_string("emails/internal_transfer.html", email_context)
+                
+                email = EmailMessage(
+                    subject=subject,
+                    body=html_message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    to=[recipient_email],
+                )
+                email.content_subtype = "html"
+                email.send()
+            
+            return Response({
+                'success': True,
+                'message': f'Notification emails sent to {len(unique_recipients)} recipient(s)',
+                'recipients': unique_recipients
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Failed to send transfer emails: {e}")
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

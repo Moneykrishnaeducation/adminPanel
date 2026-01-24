@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Internal Transfer Notification</title>
+    <style>
+        /* Glow Animation */
+        @keyframes gold-glow {
+            0% { box-shadow: 0 0 5px #FFD700, 0 0 10px #FFD700; }
+            50% { box-shadow: 0 0 15px #FFD700, 0 0 25px #FFD700; }
+            100% { box-shadow: 0 0 5px #FFD700, 0 0 10px #FFD700; }
+        }
+
+        /* Shimmer Animation */
+        @keyframes gold-shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #000000;
+            color: #FFD700;
+        }
+
+        .email-container {
+            max-width: 600px;
+            margin: 20px auto;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #1a1a1a;
+            color: #FFD700;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+            box-shadow: 0px 4px 20px rgba(255, 215, 0, 0.2);
+        }
+
+        @supports (animation: gold-shimmer 2s linear infinite) {
+            .email-container {
+                background: linear-gradient(145deg, rgba(26, 26, 26, 0.95), rgba(26, 26, 26, 0.95)) padding-box,
+                            linear-gradient(90deg, #FFD700, #fff8dc, #FFD700) border-box;
+                background-size: 200% auto;
+                animation: gold-shimmer 8s linear infinite, gold-glow 3s infinite alternate;
+                border: 2px solid transparent;
+            }
+        }
+
+        .header {
+            position: relative;
+            text-align: center;
+            padding: 25px;
+            color: #000000;
+            font-weight: bold;
+            background: linear-gradient(145deg, #FFD700, #B8860B);
+            border-bottom: 2px solid #FFD700;
+            box-shadow: 0 0 12px #FFD700;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 30px;
+            letter-spacing: 2px;
+        }
+
+        .content {
+            padding: 20px 30px;
+        }
+
+        .content h2 {
+            color: #FFD700;
+            margin-top: 0;
+            font-size: 22px;
+        }
+
+        .welcome-message {
+            font-size: 16px;
+            line-height: 1.6;
+            margin: 20px 0;
+            color: #f5f5f5;
+        }
+
+        .transfer-details {
+            background-color: rgba(255, 215, 0, 0.1);
+            border-left: 4px solid #FFD700;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-size: 14px;
+            color: #f5f5f5;
+        }
+
+        .detail-label {
+            font-weight: 600;
+            color: #FFD700;
+            min-width: 150px;
+        }
+
+        .detail-value {
+            color: #f5f5f5;
+            text-align: right;
+            word-break: break-word;
+        }
+
+        .amount-highlight {
+            font-size: 20px;
+            font-weight: 700;
+            color: #FFD700;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #FFD700;
+        }
+
+        .note-section {
+            background-color: rgba(255, 215, 0, 0.15);
+            border-left: 4px solid #FFD700;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #f5f5f5;
+        }
+
+        .note-label {
+            font-weight: 600;
+            color: #FFD700;
+            margin-bottom: 8px;
+        }
+
+        .button {
+            display: inline-block;
+            text-align: center;
+            background: linear-gradient(145deg, #FFD700, #B8860B);
+            color: #000000;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            border: 2px solid #FFD700;
+            box-shadow: 0 0 8px #FFD700;
+            margin-top: 15px;
+        }
+
+        .button:hover {
+            box-shadow: 0 0 15px #FFD700;
+            transform: scale(1.05);
+        }
+
+        .footer {
+            background-color: #0d0d0d;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+            border-top: 1px solid #FFD700;
+        }
+
+        .footer p {
+            margin: 5px 0;
+        }
+
+        .warning {
+            color: #ff6b6b;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>INTERNAL TRANSFER</h1>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <h2>Transfer Completed Successfully</h2>
+            
+            <p class="welcome-message">Hello,</p>
+            
+            <p class="welcome-message">An internal transfer has been processed on your trading account(s). Here are the details:</p>
+
+            <!-- Transfer Details Box -->
+            <div class="transfer-details">
+                <div class="detail-row">
+                    <span class="detail-label">From Account:</span>
+                    <span class="detail-value"><strong>{{ from_account }}</strong> <span style="color: #bbb;">({{ from_account_number }})</span></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">To Account:</span>
+                    <span class="detail-value"><strong>{{ to_account }}</strong> <span style="color: #bbb;">({{ to_account_number }})</span></span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Status:</span>
+                    <span class="detail-value"><strong style="color: #00ff00;">✓ Completed</strong></span>
+                </div>
+                <div class="amount-highlight">
+                    Amount Transferred: <strong>{{ amount }}</strong>
+                </div>
+            </div>
+
+            <!-- Note Section (if provided) -->
+            {% if note %}
+            <div class="note-section">
+                <div class="note-label">Transfer Note:</div>
+                <p style="margin: 0; color: #f5f5f5;">{{ note }}</p>
+            </div>
+            {% endif %}
+
+            <p class="welcome-message">If you did not initiate this transfer or have any questions, please contact our support team immediately at <a href="mailto:support@vtindex.com" style="color: #FFD700; text-decoration: none;">support@vtindex.com</a></p>
+
+            <p style="text-align: center;">
+                <a href="https://client.vtindex.com" class="button">View Account Details</a>
+            </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p><strong>VTIndex Trading Platform</strong></p>
+            <p>For support inquiries, please contact: <a href="mailto:support@vtindex.com" style="color: #FFD700; text-decoration: none;">support@vtindex.com</a></p>
+            <p>This is an automated email. Please do not reply to this message.</p>
+            <p>© 2026 VTIndex. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

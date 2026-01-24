@@ -207,7 +207,7 @@ from .views.commission_details import commission_details_view
 from .views.views4 import UserDetailView
 # New: Import the new API view for listing accounts by type
 from .views.mam_api_views import mam_accounts_list, investor_accounts_list
-from .views.trading_account_api import ListAccountsByTypeView, InternalTransferSubmitView
+from .views.trading_account_api import ListAccountsByTypeView, InternalTransferSubmitView, SendTransferNotificationView
 from .views.export_views import (
     export_users_csv,
     export_trading_accounts_csv,
@@ -233,6 +233,7 @@ urlpatterns = [
     # Avoid registering admin.site.urls here to prevent duplicate 'admin' namespace warnings.
     path('api/accounts/list-by-type/', ListAccountsByTypeView.as_view(), name='list-accounts-by-type'),
     path('api/accounts/internal-transfer/', InternalTransferSubmitView.as_view(), name='internal-transfer-submit'),
+    path('api/admin/send-transfer-notification/', SendTransferNotificationView.as_view(), name='send-transfer-notification'),
     # Other API routes
     path('api/activity/client-logs/', activity_logs_client, name='api-activity-client-logs'),
     path('api/activity/ib-clients/', ib_clients_activity_logs, name='api-activity-ib-clients'),
