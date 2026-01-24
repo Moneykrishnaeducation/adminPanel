@@ -1067,7 +1067,7 @@ class BankDetailsRequestSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "user", "user_email", "status", "created_at", "updated_at"]
-    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     user_name = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     branch_name = serializers.CharField(read_only=True)
@@ -1076,13 +1076,20 @@ class BankDetailsRequestSerializer(serializers.ModelSerializer):
 class IBRequestSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     useremail = serializers.EmailField(source='user.email', read_only=True)
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     class Meta:
         model = IBRequest
-        fields = '__all__'
+        fields = ['id', 'user_id', 'username', 'useremail', 'status', 'created_at', 'updated_at']
+        
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Rename id to request_id to avoid confusion
+        data['request_id'] = data.pop('id')
+        return data
 
 class ChangeRequestSerializer(serializers.ModelSerializer):
     # user = serializers.CharField(source='user.username', read_only=True)
-    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     user_name = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     requested_changes = serializers.JSONField(source='requested_data', read_only=True)
@@ -1096,7 +1103,7 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ['user', 'user_email', 'status', 'created_at', 'reviewed_at']
 
 class UserDocumentSerializer(serializers.ModelSerializer):
-    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     user_name = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     id_proof = serializers.SerializerMethodField()
