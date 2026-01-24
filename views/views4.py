@@ -580,23 +580,69 @@ class AvailableGroupsView(APIView):
                 logger.warning(f"Could not load database group settings: {e}")
                 db_settings = {}
             
+            # Determine requester role: admin vs manager. Admins see original groups unchanged.
+            is_admin = False
+            is_manager = False
+            try:
+                if getattr(request.user, 'is_superuser', False):
+                    is_admin = True
+                elif hasattr(request.user, 'manager_admin_status') and isinstance(request.user.manager_admin_status, str):
+                    mgr_status = request.user.manager_admin_status.lower()
+                    if 'admin' in mgr_status:
+                        is_admin = True
+                    elif 'manager' in mgr_status:
+                        is_manager = True
+            except Exception:
+                # on any unexpected error, default to admin-safe behavior (show groups)
+                is_admin = True
+
+            def _format_for_role(orig_name, base_fields, db_info):
+                """Return formatted dict or None if this group should be hidden for the requester.
+
+                - Admins: return fields unchanged (but keep alias in payload).
+                - Managers: only show groups that have a non-empty alias; use alias as id/value/label/name.
+                """
+                alias = (db_info or {}).get('alias', '') or ''
+                if is_admin:
+                    # keep original fields
+                    out = dict(base_fields)
+                    out['alias'] = alias
+                    out['original_name'] = orig_name
+                    return out
+
+                if is_manager:
+                    # manager should only see groups that have an alias
+                    if not alias:
+                        return None
+                    out = dict(base_fields)
+                    # use alias as the visible identifier for managers
+                    out_id = alias
+                    out['id'] = out_id
+                    out['value'] = out_id
+                    # For managers show only the alias as the label (no leverage info)
+                    out['label'] = out_id
+                    out['name'] = out_id
+                    out['alias'] = alias
+                    out['original_name'] = orig_name
+                    return out
+
             if groups_config:
                 # Format groups with detailed information for frontend consumption
                 formatted_groups = []
                 
                 
                 for group in groups_config:
-                    group_name = group['name']
-                    
+                    group_name = group.get('name')
+
                     # Skip database-only groups that shouldn't be shown
                     if not group_name or group_name.startswith('MT5_Group_'):
                         logger.debug(f"Skipping database-only group: {group_name}")
                         continue
-                    
+
                     db_info = db_settings.get(group_name, {})
-                    
-                    formatted_groups.append({
-                        "id": group_name,  # Use name as ID for consistency
+
+                    base = {
+                        "id": group_name,  # default ID (may be replaced for manager)
                         "value": group_name,
                         "label": f"{group_name} (Max Leverage: 1:{group.get('leverage_max', 1000)})",
                         "name": group_name,
@@ -610,9 +656,16 @@ class AvailableGroupsView(APIView):
                         "currency": group.get('currency', 'USD'),
                         "deposit_min": group.get('deposit_min', 0),
                         "description": group.get('description', 'Trading group'),
-                        "alias": db_info.get('alias', '') or '',
-                        "group_type": "MT5"  # Mark as MT5 group
-                    })
+                        "group_type": "MT5",
+                    }
+
+                    out = _format_for_role(group_name, base, db_info)
+                    if out is None:
+                        # hidden for this requester (e.g., manager with no alias)
+                        continue
+                    # ensure alias present in payload for consumers
+                    out.setdefault('alias', db_info.get('alias', '') or '')
+                    formatted_groups.append(out)
                 
                 
                 return Response({
@@ -635,23 +688,30 @@ class AvailableGroupsView(APIView):
                     # Format groups for frontend consumption
                     formatted_groups = []
                     for i, group in enumerate(available_groups):
-                        formatted_groups.append({
-                            "id": group,  # Use group name as ID
-                            "value": group,
-                            "label": group,
-                            "name": group,
-                            "is_demo": "demo" in group.lower(),
-                            "is_live": "demo" not in group.lower(),
-                            "is_default": False,  # Default to false, user can set
-                            "is_demo_default": False,  # Default to false, user can set
-                            "enabled": False,  # Default to false, user can enable
-                            "leverage_max": 1000,  # Default assumption
-                            "leverage_min": 1,     # Default assumption
+                        group_name = group
+                        db_info = db_settings.get(group_name, {})
+                        base = {
+                            "id": group_name,
+                            "value": group_name,
+                            "label": group_name,
+                            "name": group_name,
+                            "is_demo": "demo" in group_name.lower(),
+                            "is_live": "demo" not in group_name.lower(),
+                            "is_default": False,
+                            "is_demo_default": False,
+                            "enabled": False,
+                            "leverage_max": 1000,
+                            "leverage_min": 1,
                             "currency": "USD",
                             "deposit_min": 0,
-                            "description": f"{'Demo' if 'demo' in group.lower() else 'Live'} trading group",
-                            "alias": ""  # Empty alias by default
-                        })
+                            "description": f"{'Demo' if 'demo' in group_name.lower() else 'Live'} trading group",
+                        }
+
+                        out = _format_for_role(group_name, base, db_info)
+                        if out is None:
+                            continue
+                        out.setdefault('alias', db_info.get('alias', '') or '')
+                        formatted_groups.append(out)
                     
                     return Response({
                         "groups": formatted_groups,  # Changed from "available_groups" to "groups"
