@@ -659,6 +659,11 @@ class AvailableGroupsView(APIView):
                         "group_type": "MT5",
                     }
 
+                    # Skip demo groups entirely (do not show demo accounts)
+                    if base.get('is_demo'):
+                        logger.debug(f"Skipping demo group: {group_name}")
+                        continue
+
                     out = _format_for_role(group_name, base, db_info)
                     if out is None:
                         # hidden for this requester (e.g., manager with no alias)
@@ -706,6 +711,11 @@ class AvailableGroupsView(APIView):
                             "deposit_min": 0,
                             "description": f"{'Demo' if 'demo' in group_name.lower() else 'Live'} trading group",
                         }
+
+                        # Skip demo groups entirely (do not show demo accounts)
+                        if base.get('is_demo'):
+                            logger.debug(f"Skipping demo group: {group_name}")
+                            continue
 
                         out = _format_for_role(group_name, base, db_info)
                         if out is None:
