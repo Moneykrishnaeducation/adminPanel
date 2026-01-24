@@ -7,21 +7,19 @@ import decimal
 
 class CommissionTransactionSerializer(serializers.ModelSerializer):
     ib_user = serializers.SerializerMethodField()
-    client_user = serializers.SerializerMethodField()
+    client_user_first_name = serializers.CharField(source='client_user.first_name', read_only=True)
+    client_user_last_name = serializers.CharField(source='client_user.last_name', read_only=True)
+    client_user_email = serializers.EmailField(source='client_user.email', read_only=True)
     client_trading_account = serializers.CharField(source='client_trading_account.account_id', read_only=True)
     ib_user_email = serializers.EmailField(source='ib_user.user.email', read_only=True)  
-    commissioning_profile_name = serializers.CharField(source='commissioning_profile.name', read_only=True)  
+    commissioning_profile_name = serializers.CharField(source='ib_user.commissioning_profile.name', read_only=True)  
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, source='commission_to_ib', read_only=True)
-    commissioning_profile_name = serializers.CharField(source='ib_user.commissioning_profile.name', read_only=True)
     commission_percentage = serializers.SerializerMethodField(read_only=True)
     
     def get_ib_user(self, obj):
         """Return IB user's full name with email"""
         return f"{obj.ib_user.first_name} {obj.ib_user.last_name} ({obj.ib_user.email})"
 
-    def get_client_user(self, obj):
-        """Return Client user's full name with email"""
-        return f"{obj.client_user.first_name} {obj.client_user.last_name} ({obj.client_user.email})"
     def get_commission_percentage(self, obj):
         if obj.ib_level == 1:
             return obj.ib_user.commissioning_profile.level_1_percentage
@@ -34,12 +32,12 @@ class CommissionTransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CommissionTransaction
         fields = [
-            'id', 'ib_user', 'ib_user_email', 'client_user', 'client_trading_account',
+            'id', 'ib_user', 'ib_user_email', 'client_user_first_name', 'client_user_last_name', 'client_user_email', 'client_trading_account',
             'position_id', 'deal_ticket', 'amount', 'commission_percentage', 'ib_level', 'total_commission',
             'commissioning_profile_name', 'position_type', 'position_symbol', 'position_direction', 
             'lot_size', 'profit', 'mt5_close_time', 'created_at'
         ]
-        read_only_fields = ['id', 'created_at', 'ib_user_email', 'commissioning_profile_name', 'amount', 'commission_percentage']
+        read_only_fields = ['id', 'created_at', 'ib_user_email', 'commissioning_profile_name', 'amount', 'commission_percentage', 'client_user_email']
 
 class UserSerializer(serializers.ModelSerializer):
 
@@ -181,7 +179,7 @@ class TransactionSerializer(serializers.ModelSerializer):
     # Allow admin_comment to be written to as well
     admin_comment = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     
-    user_id = serializers.IntegerField(source='trading_account.user.user_id', read_only=True)
+    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     username = serializers.CharField(source='trading_account.user.username', read_only=True)
     it_username=serializers.CharField(source='from_account.user.username', read_only=True)
     it_useremail=serializers.CharField(source='from_account.user.email', read_only=True)
@@ -1048,11 +1046,6 @@ class BankDetailsRequestSerializer(serializers.ModelSerializer):
     branch = serializers.CharField(source='branch_name', read_only=True)
     user = serializers.CharField(source='user.username', read_only=True)
     user_email = serializers.EmailField(source='user.email', read_only=True)
-    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
-    user_name = serializers.CharField(source='user.username', read_only=True)
-    email = serializers.CharField(source='user.email', read_only=True)
-    branch_name = serializers.CharField(read_only=True)
-    bank_doc = serializers.FileField(read_only=True)
     
     class Meta:
         model = BankDetailsRequest
@@ -1074,18 +1067,22 @@ class BankDetailsRequestSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "user", "user_email", "status", "created_at", "updated_at"]
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    user_name = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.CharField(source='user.email', read_only=True)
+    branch_name = serializers.CharField(read_only=True)
+    bank_doc = serializers.FileField(read_only=True)
         
 class IBRequestSerializer(serializers.ModelSerializer):
-    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
     useremail = serializers.EmailField(source='user.email', read_only=True)
     class Meta:
         model = IBRequest
-        fields = ['id', 'user_id', 'username', 'useremail', 'user', 'status', 'created_at', 'updated_at']
+        fields = '__all__'
 
 class ChangeRequestSerializer(serializers.ModelSerializer):
     # user = serializers.CharField(source='user.username', read_only=True)
-    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
     user_name = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     requested_changes = serializers.JSONField(source='requested_data', read_only=True)
@@ -1099,7 +1096,7 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ['user', 'user_email', 'status', 'created_at', 'reviewed_at']
 
 class UserDocumentSerializer(serializers.ModelSerializer):
-    user_id = serializers.IntegerField(source='user.user_id', read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
     user_name = serializers.CharField(source='user.username', read_only=True)
     email = serializers.CharField(source='user.email', read_only=True)
     id_proof = serializers.SerializerMethodField()
