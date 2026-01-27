@@ -62,6 +62,18 @@ class UserDetailView(APIView):
         
         if serializer.is_valid():
             try:
+                # Validate any uploaded files (images/PDFs) using shared helper if available
+                try:
+                    from clientPanel.views.views import validate_upload_file
+                except Exception:
+                    validate_upload_file = None
+
+                if validate_upload_file is not None and hasattr(request, 'FILES') and request.FILES:
+                    for fname, fobj in request.FILES.items():
+                        is_valid, err = validate_upload_file(fobj, max_size_mb=10)
+                        if not is_valid:
+                            return Response({"error": f"Invalid uploaded file '{fname}': {err}"}, status=status.HTTP_400_BAD_REQUEST)
+
                 updated_user = serializer.save()
  
                 

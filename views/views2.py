@@ -363,6 +363,17 @@ def upload_document(request):
     document_type = request.POST.get('document_type')
     file = request.FILES.get('file')
     
+    # Try to use shared validation helper to deeply verify images/PDFs
+    try:
+        from clientPanel.views.views import validate_upload_file
+    except Exception:
+        validate_upload_file = None
+
+    if validate_upload_file is not None:
+        is_valid, validation_err = validate_upload_file(file, max_size_mb=2)
+        if not is_valid:
+            return Response({"error": f"Invalid file: {validation_err}"}, status=status.HTTP_400_BAD_REQUEST)
+
     if not document_type or document_type.upper() not in ['ID', 'ADDRESS']:
         return Response(
             {"error": "Invalid document type. Must be 'ID' or 'Address'."},
@@ -375,17 +386,19 @@ def upload_document(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if file.size > 2 * 1024 * 1024:  
-        return Response(
-            {"error": "File size exceeds 2 MB."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    # If helper wasn't available, perform basic size/type checks as fallback
+    if validate_upload_file is None:
+        if file.size > 2 * 1024 * 1024:  
+            return Response(
+                {"error": "File size exceeds 2 MB."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    if file.content_type not in ['image/jpeg', 'image/png', 'application/pdf']:
-        return Response(
-            {"error": "Invalid file type. Only JPEG, PNG, and PDF are allowed."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        if file.content_type not in ['image/jpeg', 'image/png', 'application/pdf']:
+            return Response(
+                {"error": "Invalid file type. Only JPEG, PNG, and PDF are allowed."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
     try:
         user = CustomUser.objects.get(user_id=user_id)
