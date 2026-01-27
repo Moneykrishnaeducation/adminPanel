@@ -97,6 +97,26 @@ class TicketView(APIView):
             # Save any uploaded files as messages attached to the ticket
             from ..models import Message
             files = request.FILES.getlist('documents') if hasattr(request, 'FILES') else []
+
+            # Deep-validate attachments using shared helper if available
+            try:
+                from clientPanel.views.views import validate_upload_file
+            except Exception:
+                validate_upload_file = None
+
+            if validate_upload_file is not None:
+                for f in files:
+                    is_valid, err = validate_upload_file(f, max_size_mb=10)
+                    if not is_valid:
+                        return Response({"error": f"Invalid attachment {getattr(f, 'name', 'file')}: {err}"}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                try:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning('validate_upload_file not available; skipping deep attachment validation')
+                except Exception:
+                    pass
+
             for f in files:
                 Message.objects.create(ticket=ticket, sender=request.user, file=f)
             
