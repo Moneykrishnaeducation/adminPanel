@@ -79,15 +79,12 @@ def _get_manager_instance_sync():
 
         if latest_setting and (_manager_instance is None or _current_server_setting_id != latest_setting.id):
             _manager_instance = MT5ManagerAPI()
-            pwd = latest_setting.get_real_account_password()
-            if not pwd:
-                raise Exception("MT5 raw password is not available. Update server settings to include the raw password so the manager can connect.")
             _manager_instance.connect(
                 address=latest_setting.server_ip,
                 login=int(latest_setting.real_account_login),
-                password=pwd,
+                password=latest_setting.real_account_password,
                 mode=MT5Manager.ManagerAPI.EnPumpModes.PUMP_MODE_FULL,
                 timeout=120000,
             )
-            _current_server_setting_id = latest_setting.id
+            _current_server_setting_id = latest_setting.id  
         return _manager_instance

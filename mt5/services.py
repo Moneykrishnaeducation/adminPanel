@@ -314,17 +314,13 @@ def _get_manager_instance_sync():
             if _manager_instance is None or _current_server_setting != latest_setting:
                 _manager_instance = MT5ManagerAPI()
                 try:
-                    pwd = latest_setting.get_real_account_password()
-                    if not pwd:
-                        raise Exception("MT5 raw password is not available. Update server settings to include the raw password so the manager can connect.")
-
                     connection_result = _manager_instance.connect(
-                            address=latest_setting.server_ip,
-                            login=int(latest_setting.real_account_login),
-                            password=pwd,
-                            mode=MT5Manager.ManagerAPI.EnPumpModes.PUMP_MODE_FULL,
-                            timeout=120000,
-                        )
+                        address=latest_setting.server_ip,
+                        login=int(latest_setting.real_account_login),
+                        password=latest_setting.real_account_password,
+                        mode=MT5Manager.ManagerAPI.EnPumpModes.PUMP_MODE_FULL,
+                        timeout=120000,
+                    )
                     # Connection successful if no exception was raised
                     # logger.info("Connected to MT5 Manager API with latest server settings.")
                     _current_server_setting = latest_setting
@@ -839,20 +835,11 @@ class MT5ManagerActions:
 
     @ensure_connected
     def change_master_password(self, login_id, master_pass):
-        """Change master password for MT5 account"""
         if self.manager.UserPasswordChange(0, int(login_id), str(master_pass)):
             return True
         print(MT5Manager.LastError())
         return False
 
-    @ensure_connected
-    def change_investor_password(self, login_id, investor_pass):
-        """Change investor password for MT5 account"""
-        if self.manager.UserPasswordChange(1, int(login_id), str(investor_pass)):
-            return True
-        print(MT5Manager.LastError())
-        return False
-    
     @ensure_connected
     def get_balance(self, login_id):
         try:

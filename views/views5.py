@@ -78,7 +78,7 @@ class LatestTradingAccountGroupView(APIView):
     """
     Fetch the latest TradingAccountGroup object excluding demo groups.
     """
-    permission_classes = [IsSuperuser]
+    permission_classes = [IsAdmin]
 
     def get(self, request):
         try:
@@ -96,7 +96,7 @@ class UpdateTradingGroupView(APIView):
     """
     Update the selected trading group for a specific trading account.
     """
-    permission_classes = [IsSuperuser]
+    permission_classes = [IsAdmin]
 
     def post(self, request):
         account_id = request.data.get("account_id")
@@ -719,7 +719,7 @@ class ServerSettingsAPIView(APIView):
     PUT: Update server settings
     POST: Update server settings (same as PUT for compatibility)
     """
-    permission_classes = [IsSuperuser]
+    permission_classes = [AllowAny]  # <-- Replace with IsAdmin after testing
     http_method_names = ['get', 'put', 'post', 'head', 'options']
 
     def get(self, request):
@@ -760,16 +760,17 @@ class ServerSettingsAPIView(APIView):
                 defaults={
                     'server_ip': data['server_ip'],
                     'real_account_login': data['login_id'],
+                    'real_account_password': data['server_password'],
                     'server_name_client': data['server_name']
                 }
             )
 
-            # Always set (and hash) the password via model helper
-            server_setting.server_ip = data['server_ip']
-            server_setting.real_account_login = data['login_id']
-            server_setting.server_name_client = data['server_name']
-            server_setting.set_real_account_password(data['server_password'])
-            server_setting.save()
+            if not created:
+                server_setting.server_ip = data['server_ip']
+                server_setting.real_account_login = data['login_id']
+                server_setting.real_account_password = data['server_password']
+                server_setting.server_name_client = data['server_name']
+                server_setting.save()
 
             # Force refresh MT5 Manager connection with new credentials
             try:
@@ -826,16 +827,17 @@ class ServerSettingsAPIView(APIView):
                 defaults={
                     'server_ip': data['server_ip'],
                     'real_account_login': data['login_id'],
+                    'real_account_password': data['server_password'],
                     'server_name_client': data['server_name']
                 }
             )
 
-            # Always set (and hash) the password via model helper
-            server_setting.server_ip = data['server_ip']
-            server_setting.real_account_login = data['login_id']
-            server_setting.server_name_client = data['server_name']
-            server_setting.set_real_account_password(data['server_password'])
-            server_setting.save()
+            if not created:
+                server_setting.server_ip = data['server_ip']
+                server_setting.real_account_login = data['login_id']
+                server_setting.real_account_password = data['server_password']
+                server_setting.server_name_client = data['server_name']
+                server_setting.save()
 
             # Automated full MT5 database and cache reset after updating credentials
             try:
