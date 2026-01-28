@@ -671,9 +671,9 @@ class AvailableGroupsView(APIView):
                         "group_type": "MT5",
                     }
 
-                    # Skip demo groups entirely (do not show demo accounts)
-                    if base.get('is_demo'):
-                        logger.debug(f"Skipping demo group: {group_name}")
+                    # Skip demo groups only when the requester explicitly asked for real groups
+                    if base.get('is_demo') and request.query_params.get('type', '').lower() == 'real':
+                        logger.debug(f"Skipping demo group for type=real: {group_name}")
                         continue
 
                     out = _format_for_role(group_name, base, db_info)
@@ -724,9 +724,9 @@ class AvailableGroupsView(APIView):
                             "description": f"{'Demo' if 'demo' in group_name.lower() else 'Live'} trading group",
                         }
 
-                        # Skip demo groups entirely (do not show demo accounts)
-                        if base.get('is_demo'):
-                            logger.debug(f"Skipping demo group: {group_name}")
+                        # Skip demo groups only when the requester explicitly asked for real groups
+                        if base.get('is_demo') and request.query_params.get('type', '').lower() == 'real':
+                            logger.debug(f"Skipping demo group for type=real: {group_name}")
                             continue
 
                         out = _format_for_role(group_name, base, db_info)
