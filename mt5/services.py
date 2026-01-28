@@ -315,9 +315,9 @@ def _get_manager_instance_sync():
                 _manager_instance = MT5ManagerAPI()
                 try:
                     connection_result = _manager_instance.connect(
-                        address=latest_setting.server_ip,
+                        address=latest_setting.get_decrypted_server_ip(),
                         login=int(latest_setting.real_account_login),
-                        password=latest_setting.real_account_password,
+                        password=latest_setting.get_decrypted_real_account_password(),
                         mode=MT5Manager.ManagerAPI.EnPumpModes.PUMP_MODE_FULL,
                         timeout=120000,
                     )
