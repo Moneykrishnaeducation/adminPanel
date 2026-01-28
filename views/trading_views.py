@@ -65,8 +65,22 @@ def trading_accounts_list(request):
         page = paginator.paginate_queryset(trading_accounts, request)
         # Serialize the data
         serializer = TradingAccountSerializer(page, many=True)
+        # Add alias to each result if available (example: alias from account_name or another field)
+        data = serializer.data
+        from adminPanel.models import TradeGroup
+        for item in data:
+            group_alias = ""
+            group_name = item.get("group_name")
+            if group_name:
+                try:
+                    group_obj = TradeGroup.objects.filter(name=group_name).first()
+                    if group_obj and group_obj.alias:
+                        group_alias = group_obj.alias
+                except Exception:
+                    group_alias = ""
+            item["alias"] = group_alias or ""
         # Return paginated response
-        return paginator.get_paginated_response(serializer.data)
+        return paginator.get_paginated_response(data)
     except Exception as e:
         return Response({
             "error": str(e),
