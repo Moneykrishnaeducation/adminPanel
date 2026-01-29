@@ -116,13 +116,15 @@ class InternalTransferSubmitView(APIView):
             traceback.print_exc()
             return Response({'error': 'Transaction create failed', 'details': str(e)}, status=500)
         # Record in ActivityLog
+        # Use request.user if authenticated (admin transfer), otherwise use from_acc.user (client transfer)
+        log_user = request.user if request.user and request.user.is_authenticated else from_acc.user
         ActivityLog.objects.create(
-            user=from_acc.user,
+            user=log_user,
             activity=f"Internal transfer: {amount} from {from_account_no} to {to_account_no}. Note: {note}",
             ip_address=request.META.get('REMOTE_ADDR', ''),
             endpoint=request.path,
-            activity_type="internal_transfer",
-            activity_category="management",
+            activity_type="create",
+            activity_category="management" if (request.user and request.user.is_authenticated) else "client",
             user_agent=request.META.get("HTTP_USER_AGENT", ""),
             timestamp=timezone.now(),
             related_object_id=transaction.id,
