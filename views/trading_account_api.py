@@ -73,12 +73,100 @@ class InternalTransferSubmitView(APIView):
         if amount > from_balance:
             return Response({'error': 'Insufficient balance.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Perform real MT5 internal transfer
-        transfer_result = mt5_manager.internal_transfer(
-            login_id_in=to_account_no,
-            login_id_out=from_account_no,
-            amount=amount
-        )
+        # Helper function to check if account is CENT type
+        def is_cent_account(account, mt5_mgr):
+            """Check if account uses CENT alias by querying MT5 and TradeGroup"""
+            try:
+                from adminPanel.models import TradeGroup
+                from django.db.models import Q
+                
+                # Get group from MT5 directly
+                mt5_group = mt5_mgr.get_group_of(int(account.account_id))
+                
+                print(f"[CENT DEBUG] Account {account.account_id} MT5 group: '{mt5_group}'")
+                
+                if mt5_group:
+                    # Pattern 1: Contains "cent" in the name
+                    if 'cent' in mt5_group.lower():
+                        print(f"[CENT DEBUG] Account {account.account_id} detected as CENT (contains 'cent')")
+                        return True
+                    
+                    # Pattern 2: Contains "-C-" which typically indicates CENT
+                    if '-c-' in mt5_group.lower():
+                        print(f"[CENT DEBUG] Account {account.account_id} detected as CENT (contains '-c-')")
+                        return True
+                    
+                    # Pattern 3: Query TradeGroup by MT5 group name and check alias
+                    trade_group = TradeGroup.objects.filter(
+                        Q(name=mt5_group) | Q(group_id=mt5_group)
+                    ).first()
+                    
+                    if trade_group and trade_group.alias and trade_group.alias.upper() == 'CENT':
+                        print(f"[CENT DEBUG] Account {account.account_id} detected as CENT (TradeGroup alias)")
+                        return True
+                
+                # Fallback: check if group_name field contains "cent"
+                if account.group_name and 'cent' in account.group_name.lower():
+                    print(f"[CENT DEBUG] Account {account.account_id} detected as CENT (account.group_name)")
+                    return True
+                    
+                print(f"[CENT DEBUG] Account {account.account_id} NOT detected as CENT")
+                    
+            except Exception as e:
+                print(f"[CENT ERROR] Error checking CENT account for {account.account_id}: {e}")
+            
+            return False
+
+        # Check if accounts are CENT type
+        from_is_cent = is_cent_account(from_acc, mt5_manager)
+        to_is_cent = is_cent_account(to_acc, mt5_manager)
+        
+        print(f"[CENT DEBUG] Transfer: {from_account_no} (CENT={from_is_cent}) -> {to_account_no} (CENT={to_is_cent}), Amount: {amount}")
+        
+        # Track actual amounts for different scenarios
+        actual_withdraw_amount = amount
+        actual_deposit_amount = amount
+        
+        # Perform MT5 transfer with CENT conversion if needed
+        if from_is_cent and not to_is_cent:
+            # FROM CENT to regular: amount is in cents, convert to USD
+            actual_withdraw_amount = amount
+            actual_deposit_amount = amount / 100
+            print(f"[CENT DEBUG] CENT->Regular: Withdraw {actual_withdraw_amount} cents, Deposit {actual_deposit_amount} USD")
+            
+            # Use separate withdraw/deposit operations
+            if not mt5_manager.withdraw_funds(int(from_account_no), actual_withdraw_amount, f"Internal transfer to {to_account_no}"):
+                return Response({'error': 'MT5 Error - Could not withdraw from source account'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            if not mt5_manager.deposit_funds(int(to_account_no), actual_deposit_amount, f"Internal transfer from {from_account_no}"):
+                # Rollback
+                mt5_manager.deposit_funds(int(from_account_no), actual_withdraw_amount, f"Rollback transfer to {to_account_no}")
+                return Response({'error': 'MT5 Error - Could not deposit to destination account'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            transfer_result = True
+            
+        elif not from_is_cent and to_is_cent:
+            # FROM regular to CENT: amount is in USD, convert to cents
+            actual_withdraw_amount = amount
+            actual_deposit_amount = amount * 100
+            print(f"[CENT DEBUG] Regular->CENT: Withdraw {actual_withdraw_amount} USD, Deposit {actual_deposit_amount} cents")
+            
+            # Use separate withdraw/deposit operations
+            if not mt5_manager.withdraw_funds(int(from_account_no), actual_withdraw_amount, f"Internal transfer to {to_account_no}"):
+                return Response({'error': 'MT5 Error - Could not withdraw from source account'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            if not mt5_manager.deposit_funds(int(to_account_no), actual_deposit_amount, f"Internal transfer from {from_account_no}"):
+                # Rollback
+                mt5_manager.deposit_funds(int(from_account_no), actual_withdraw_amount, f"Rollback transfer to {to_account_no}")
+                return Response({'error': 'MT5 Error - Could not deposit to destination account'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            transfer_result = True
+            
+        else:
+            # Both CENT or both regular: standard 1:1 transfer
+            print(f"[CENT DEBUG] Same type transfer: {amount}")
+            transfer_result = mt5_manager.internal_transfer(
+                login_id_in=to_account_no,
+                login_id_out=from_account_no,
+                amount=amount
+            )
+        
         if not transfer_result:
             return Response({'error': 'Internal transfer failed. Please try again.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

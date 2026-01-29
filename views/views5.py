@@ -596,9 +596,9 @@ class ServerDetailsView(APIView):
     def get(self, request):
         latest_server = ServerSetting.objects.latest('created_at')  
         server_details = {
-            "ip_address": latest_server.server_ip,
+            "ip_address": latest_server.get_decrypted_server_ip(),
             "real_login": latest_server.real_account_login,
-            "password": latest_server.real_account_password
+            "password": latest_server.get_decrypted_real_account_password()
         }
         return Response(server_details, status=status.HTTP_200_OK)
 
@@ -726,9 +726,9 @@ class ServerSettingsAPIView(APIView):
         try:
             server_setting = ServerSetting.objects.latest('created_at')
             return Response({
-                "server_ip": server_setting.server_ip,
+                "server_ip": server_setting.get_decrypted_server_ip(),
                 "login_id": server_setting.real_account_login,
-                "server_password": server_setting.real_account_password,
+                "server_password": server_setting.get_decrypted_real_account_password(),
                 "server_name": server_setting.server_name_client
             }, status=status.HTTP_200_OK)
         except ServerSetting.DoesNotExist:
@@ -797,7 +797,7 @@ class ServerSettingsAPIView(APIView):
 
             return Response({
                 "message": "Server settings updated successfully",
-                "server_ip": server_setting.server_ip,
+                "server_ip": server_setting.get_decrypted_server_ip(),
                 "login_id": server_setting.real_account_login,
                 "server_name": server_setting.server_name_client
             }, status=status.HTTP_200_OK)
@@ -875,7 +875,7 @@ class ServerSettingsAPIView(APIView):
 
             return Response({
                 "message": "Server settings updated successfully",
-                "server_ip": server_setting.server_ip,
+                "server_ip": server_setting.get_decrypted_server_ip(),
                 "login_id": server_setting.real_account_login,
                 "server_name": server_setting.server_name_client
             }, status=status.HTTP_200_OK)

@@ -1198,8 +1198,108 @@ class InternalTransferView(APIView):
             if from_account.user != to_account.user:
                 return Response({"error": "Different User - Not allowed"}, status=status.HTTP_400_BAD_REQUEST)
             
+            print(f"[TRANSFER START] From: {from_account_id} (Balance: {from_account.balance}), To: {to_account_id} (Balance: {to_account.balance}), Amount: {amount}")
+            
+            # Helper function to check if account is CENT type
+            def is_cent_account(account, mt5_manager):
+                """Check if account uses CENT alias by querying MT5 and TradeGroup"""
+                print(f"[CENT DEBUG] Checking if account {account.account_id} is CENT...")
+                try:
+                    from adminPanel.models import TradeGroup
+                    from django.db.models import Q
+                    
+                    # Get group from MT5 directly
+                    mt5_group = mt5_manager.get_group_of(int(account.account_id))
+                    
+                    print(f"[CENT DEBUG] Account {account.account_id} MT5 group: '{mt5_group}'")
+                    
+                    if mt5_group:
+                        # Check for common CENT patterns in the group name
+                        # Pattern 1: Contains "cent" in the name
+                        if 'cent' in mt5_group.lower():
+                            print(f"[CENT DEBUG] Account {account.account_id} detected as CENT (contains 'cent')")
+                            return True
+                        
+                        # Pattern 2: Contains "-C-" which typically indicates CENT (e.g., "KRSNA-C-CRM")
+                        if '-c-' in mt5_group.lower():
+                            print(f"[CENT DEBUG] Account {account.account_id} detected as CENT (contains '-c-')")
+                            return True
+                        
+                        # Pattern 3: Query TradeGroup by the MT5 group name or group_id and check alias
+                        trade_group = TradeGroup.objects.filter(
+                            Q(name=mt5_group) | Q(group_id=mt5_group)
+                        ).first()
+                        
+                        print(f"[CENT DEBUG] Account {account.account_id} TradeGroup query result: {trade_group}")
+                        
+                        if trade_group and trade_group.alias and trade_group.alias.upper() == 'CENT':
+                            print(f"[CENT DEBUG] Account {account.account_id} detected as CENT (TradeGroup alias)")
+                            return True
+                    
+                    # Fallback: check if group_name field contains "cent"
+                    if account.group_name and 'cent' in account.group_name.lower():
+                        print(f"[CENT DEBUG] Account {account.account_id} detected as CENT (account.group_name)")
+                        return True
+                        
+                    print(f"[CENT DEBUG] Account {account.account_id} NOT detected as CENT")
+                        
+                except Exception as e:
+                    # Log the error for debugging
+                    print(f"Error checking CENT account for {account.account_id}: {e}")
+                    pass
+                
+                return False
+
+            # Create MT5 manager instance FIRST
+            print(f"[DEBUG] Creating MT5ManagerActions instance...")
             mt5action = MT5ManagerActions()
-            if mt5action.internal_transfer(int(to_account_id), int(from_account_id), round(float(amount),2)):
+            transfer_amount = float(amount)
+            print(f"[DEBUG] MT5 instance created. Transfer amount: {transfer_amount}")
+            
+            # Now check if accounts are CENT type (using the mt5action instance)
+            print(f"[DEBUG] About to check CENT status for accounts...")
+            from_is_cent = is_cent_account(from_account, mt5action)
+            to_is_cent = is_cent_account(to_account, mt5action)
+            print(f"[DEBUG] CENT check complete.")
+            
+            # Add debug logging
+            print(f"[CENT DEBUG] Account {from_account_id} is_cent: {from_is_cent}, Account {to_account_id} is_cent: {to_is_cent}")
+            
+            # Track actual amounts withdrawn/deposited for database update
+            actual_withdraw_amount = transfer_amount
+            actual_deposit_amount = transfer_amount
+            
+            # Handle CENT account conversion
+            if from_is_cent and not to_is_cent:
+                # Transferring FROM CENT to regular: amount is in cents, convert to USD
+                actual_withdraw_amount = transfer_amount
+                actual_deposit_amount = transfer_amount / 100
+                print(f"[CENT DEBUG] CENT->Regular: Withdraw {actual_withdraw_amount} cents, Deposit {actual_deposit_amount} USD")
+                if not mt5action.withdraw_funds(int(from_account_id), actual_withdraw_amount, f"Internal transfer to {to_account_id}"):
+                    return Response({"error": "MT5 Error - Could not withdraw from source account"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                if not mt5action.deposit_funds(int(to_account_id), actual_deposit_amount, f"Internal transfer from {from_account_id}"):
+                    # Rollback: deposit back to source
+                    mt5action.deposit_funds(int(from_account_id), actual_withdraw_amount, f"Rollback transfer to {to_account_id}")
+                    return Response({"error": "MT5 Error - Could not deposit to destination account"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                mt5_success = True
+            elif not from_is_cent and to_is_cent:
+                # Transferring FROM regular to CENT: amount is in USD, convert to cents
+                actual_withdraw_amount = transfer_amount
+                actual_deposit_amount = transfer_amount * 100
+                print(f"[CENT DEBUG] Regular->CENT: Withdraw {actual_withdraw_amount} USD, Deposit {actual_deposit_amount} cents")
+                if not mt5action.withdraw_funds(int(from_account_id), actual_withdraw_amount, f"Internal transfer to {to_account_id}"):
+                    return Response({"error": "MT5 Error - Could not withdraw from source account"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                if not mt5action.deposit_funds(int(to_account_id), actual_deposit_amount, f"Internal transfer from {from_account_id}"):
+                    # Rollback: deposit back to source
+                    mt5action.deposit_funds(int(from_account_id), actual_withdraw_amount, f"Rollback transfer to {to_account_id}")
+                    return Response({"error": "MT5 Error - Could not deposit to destination account"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                mt5_success = True
+            else:
+                # Both CENT or both regular: standard 1:1 transfer
+                print(f"[CENT DEBUG] Same type transfer: {actual_withdraw_amount}")
+                mt5_success = mt5action.internal_transfer(int(to_account_id), int(from_account_id), round(transfer_amount, 2))
+            
+            if mt5_success:
                 try:
                     transaction = Transaction.objects.create(
                         user=from_account.user,
@@ -1225,8 +1325,9 @@ class InternalTransferView(APIView):
                         related_object_id=transaction.id,
                         related_object_type="Transaction"
                     )
-                    from_account.balance -= Decimal(amount)
-                    to_account.balance += Decimal(amount)
+                    # Update database balances with actual transferred amounts
+                    from_account.balance -= Decimal(str(actual_withdraw_amount))
+                    to_account.balance += Decimal(str(actual_deposit_amount))
                     from_account.save()
                     to_account.save()
 
