@@ -53,19 +53,23 @@ def trading_accounts_list(request):
             trading_accounts = trading_accounts.filter(balance__lt=10)
         # If neither active nor inactive, default to all (or filtered by account_type below)
 
-        # Filter by account_type. Default to only 'standard' accounts when not specified.
-        # If `account_type=all` is provided OR `all=1` is provided, return all types (no filtering).
+        # Filter by account_type. Always default to only 'standard' accounts.
+        # Only show other types if explicitly requested via account_type or all parameters.
         account_type = request.query_params.get('account_type', None)
         all_types = request.query_params.get('all', None)
         
-        if account_type:
-            at = account_type.strip()
-            if at and at.lower() != 'all':
-                trading_accounts = trading_accounts.filter(account_type__iexact=at)
-            # else: if account_type='all', don't filter by type
-        elif not all_types:
-            # Default behavior: list only standard accounts, unless 'all' or 'account_type=all' param is present
-            trading_accounts = trading_accounts.filter(account_type__iexact='standard')
+        # Always filter to standard accounts UNLESS explicitly requesting all types
+        if not all_types:
+            # Default: Only show standard accounts
+            if account_type and account_type.strip().lower() == 'all':
+                # User explicitly requested all types
+                pass  # Don't filter by type
+            elif account_type:
+                # User requested a specific type
+                trading_accounts = trading_accounts.filter(account_type__iexact=account_type.strip())
+            else:
+                # Default: standard accounts only
+                trading_accounts = trading_accounts.filter(account_type__iexact='standard')
         # else: if all_types is present, return all account types (no filtering)
         
         # Apply sorting
