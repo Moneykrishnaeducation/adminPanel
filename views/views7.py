@@ -689,6 +689,14 @@ class DepositView(APIView):
             ActivityLog.objects.create(
                 user=request.user,
                 activity=f"Deposited ${amount} to account {account_id}. New balance: ${trading_account.balance}",
+                ip_address=get_client_ip(request),
+                endpoint=request.path,
+                activity_type="create",
+                activity_category="management",
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                timestamp=timezone.now(),
+                related_object_id=account_id,
+                related_object_type="TradingAccount"
             )
             
             # Send notification email
