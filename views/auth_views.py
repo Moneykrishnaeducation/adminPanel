@@ -98,31 +98,85 @@ def login_view(request):
     email = (data.get('email') or data.get('username') or '').strip()
     password = data.get('password')
 
-    if not email or not password:
-        # Log failed login attempt
+    # Support cookie-based auto-login (read access token from cookie or Authorization header)
+    skip_otp = False
+    auto_login_used = False
+
+    def _user_from_access_token_cookie(req):
+        """Try to find a valid access token in cookies (or Authorization header)
+        and return the corresponding user, or None.
+        """
+        token_names = ['jwt_token', 'access_token', 'accessToken']
+        token = None
         try:
-            ActivityLog.objects.create(
-                user=None,
-                activity="Login attempt - missing email/username or password",
-                ip_address=get_client_ip(request),
-                endpoint=request.path,
-                activity_type="create",
-                activity_category="management",
-                status_code=400,
-                user_agent=request.META.get("HTTP_USER_AGENT", ""),
-                timestamp=timezone.now()
-            )
+            for name in token_names:
+                token = req.COOKIES.get(name) or req.COOKIES.get(name.lower())
+                if token:
+                    break
+            if not token:
+                auth = req.META.get('HTTP_AUTHORIZATION', '')
+                if auth and auth.lower().startswith('bearer '):
+                    token = auth.split(' ', 1)[1].strip()
+            if not token:
+                return None
+            # Log presence (not value) of authentication sources for diagnostics
+            try:
+                found_source = 'cookie' if any(req.COOKIES.get(n) or req.COOKIES.get(n.lower()) for n in token_names) else ('auth_header' if req.META.get('HTTP_AUTHORIZATION') else 'none')
+                logger.debug(f"Admin auto-login: found auth source={found_source}")
+            except Exception:
+                pass
+            # validate token using SimpleJWT's AccessToken
+            from rest_framework_simplejwt.tokens import AccessToken
+            payload = AccessToken(token)
+            uid_claim = getattr(settings, 'SIMPLE_JWT', {}).get('USER_ID_CLAIM', 'user_id')
+            uid = payload.get(uid_claim) or payload.get('user_id')
+            if not uid:
+                return None
+            User = get_user_model()
+            return User.objects.filter(id=uid).first()
         except Exception:
-            logger.exception("Failed to create failed login ActivityLog")
-        return JsonResponse({'error': 'Email/username and password are required'}, status=400)
+            logger.debug('Cookie-based access token validation failed', exc_info=True)
+            return None
+
+    if not email or not password:
+        # Attempt cookie-based auto-login when credentials are not provided
+        cookie_user = _user_from_access_token_cookie(request)
+        if cookie_user:
+            user = cookie_user
+            skip_otp = True
+            auto_login_used = True
+        else:
+            # Log failed login attempt
+            try:
+                ActivityLog.objects.create(
+                    user=None,
+                    activity="Login attempt - missing email/username or password",
+                    ip_address=get_client_ip(request),
+                    endpoint=request.path,
+                    activity_type="create",
+                    activity_category="management",
+                    status_code=400,
+                    user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                    timestamp=timezone.now()
+                )
+            except Exception:
+                logger.exception("Failed to create failed login ActivityLog")
+            return JsonResponse({'error': 'Email/username and password are required'}, status=400)
 
     # Start timing (for diagnostics only in DEBUG)
     start_t = time.perf_counter()
 
     # Single optimized DB query for user by email OR username. Limit selected fields
     User = get_user_model()
-    user = User.objects.only('id', 'email', 'username', 'password', 'manager_admin_status', 'is_superuser')\
-        .filter(Q(email__iexact=email) | Q(username__iexact=email)).first()
+    if not auto_login_used:
+        user = User.objects.only('id', 'email', 'username', 'password', 'manager_admin_status', 'is_superuser')\
+            .filter(Q(email__iexact=email) | Q(username__iexact=email)).first()
+    else:
+        # user was already set from cookie-based auto-login
+        try:
+            user = user
+        except NameError:
+            user = None
 
     if not user:
         # Log failed login attempt
@@ -142,24 +196,25 @@ def login_view(request):
             logger.exception("Failed to create user-not-found ActivityLog")
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
-    # Check password using hash+salt verification
-    if not verify_password(user.password, password):
-        # Log failed login attempt
-        try:
-            ActivityLog.objects.create(
-                user=user,
-                activity="Login attempt - invalid password",
-                ip_address=get_client_ip(request),
-                endpoint=request.path,
-                activity_type="create",
-                activity_category="management",
-                status_code=401,
-                user_agent=request.META.get("HTTP_USER_AGENT", ""),
-                timestamp=timezone.now()
-            )
-        except Exception:
-            logger.exception("Failed to create invalid-password ActivityLog")
-        return JsonResponse({'error': 'Invalid email or password'}, status=401)
+    # Check password using hash+salt verification (skip if cookie-based auto-login)
+    if not auto_login_used:
+        if not verify_password(user.password, password):
+            # Log failed login attempt
+            try:
+                ActivityLog.objects.create(
+                    user=user,
+                    activity="Login attempt - invalid password",
+                    ip_address=get_client_ip(request),
+                    endpoint=request.path,
+                    activity_type="create",
+                    activity_category="management",
+                    status_code=401,
+                    user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                    timestamp=timezone.now()
+                )
+            except Exception:
+                logger.exception("Failed to create invalid-password ActivityLog")
+            return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
     # Allow superusers or users with Admin/Manager status
     if not user.is_superuser and getattr(user, 'manager_admin_status', '') not in ['Admin', 'Manager']:
@@ -260,7 +315,7 @@ def login_view(request):
             except Exception:
                 # conservative fallback: treat presence of login_otp as valid
                 is_valid_otp = True
-        if is_valid_otp:
+        if is_valid_otp and not skip_otp:
             return JsonResponse({
                 'verification_required': True,
                 'message': 'A verification code is pending for this account. Please verify to continue.'
@@ -400,7 +455,7 @@ def login_view(request):
         'access': access_token,
         'token': access_token,
         'refresh': str(refresh),
-        'auto_login': True,
+        'auto_login': True if auto_login_used else False,
         'remember': remember,
         'user': {
             'name': user_name,
