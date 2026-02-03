@@ -258,11 +258,13 @@ def send_admin_reply_to_manager(request):
     """
     Admin endpoint to send messages/replies to managers.
     Admins can reply to manager messages in the admin chat interface.
+    Accepts manager_id as query parameter or in request body.
     """
     try:
         data = request.data
         message_text = data.get('message', '').strip()
-        manager_id = data.get('manager_id')
+        # Accept manager_id from both query params and request body
+        manager_id = request.GET.get('manager_id') or data.get('manager_id')
         image_file = request.FILES.get('image')
         
         logger.info(f"[Admin Reply API] Admin {request.user.id} (email: {request.user.email}) sending reply to manager {manager_id}")
@@ -419,12 +421,10 @@ def mark_admin_manager_messages_as_read(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Mark all unread admin messages sent to this specific manager as read
-        # This is for when the manager views the admin's reply messages
+        # Mark all unread messages from this manager as read
         updated_count = ChatMessage.objects.filter(
-            sender=request.user,  # Current user (admin) is the sender
-            sender_type='admin',
-            recipient_id=manager_id,
+            sender_id=manager_id,
+            sender_type='manager',
             is_read=False
         ).update(is_read=True)
         
