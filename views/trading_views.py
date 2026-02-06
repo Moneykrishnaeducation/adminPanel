@@ -27,11 +27,18 @@ def trading_accounts_list(request):
             getattr(request.user, 'is_superuser', False) or
             (user_status and 'Admin' in user_status)
         )
+        logger.info(f"[trading_accounts_list] user={request.user.username}, status={user_status}, is_admin={is_admin}")
+        
         if is_admin:
             trading_accounts = TradingAccount.objects.all()
         else:
-            # For managers, only show trading accounts of their clients (created_by)
-            trading_accounts = TradingAccount.objects.filter(user__created_by=request.user)
+            # For managers, only show trading accounts of their clients (created_by or parent_ib)
+            # This ensures managers can see accounts of users they manage
+            trading_accounts = TradingAccount.objects.filter(
+                Q(user__created_by=request.user) | Q(user__parent_ib=request.user)
+            )
+        
+        logger.info(f"[trading_accounts_list] Initial queryset count: {trading_accounts.count()}")
         # Apply search if provided (server-side).
         # Frontend sends `query`, while some clients may use `search`.
         search = (request.query_params.get('query') or request.query_params.get('search') or '').strip()
@@ -132,17 +139,36 @@ def get_trading_accounts(request, user_id):
         
         # Verify the user exists
         user = CustomUser.objects.get(user_id=user_id)
-        logger.info(f"[get_trading_accounts] Found user: {user.username}")
+        logger.info(f"[get_trading_accounts] Found user: {user.username}, created_by={getattr(user, 'created_by', None)}")
         
         # Check manager permissions (only if user is Manager, not Admin or superuser)
-        if (not request.user.is_superuser and 
-            user_status and 'Manager' in user_status and 'Admin' not in user_status and 
-            getattr(user, 'created_by', None) != request.user):
-            logger.warning(f"Manager {request.user.username} denied access to user {user.username}")
-            return Response(
-                {"error": "You don't have permission to view this user's trading accounts"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # Managers can only access trading accounts of their direct clients (parent IB only)
+        is_manager_only = (
+            not request.user.is_superuser and 
+            user_status and 'Manager' in user_status and 'Admin' not in user_status
+        )
+        
+        if is_manager_only:
+            user_created_by = getattr(user, 'created_by', None)
+            logger.info(f"[get_trading_accounts] Manager check: user.created_by={user_created_by}, request.user={request.user}")
+            
+            # Check if this user is a client of the manager (created by them)
+            # Also check if user is IB parent (parent_ib field) associated with manager
+            is_manager_client = (user_created_by == request.user)
+            parent_ib = getattr(user, 'parent_ib', None)
+            is_parent_ib_client = (parent_ib == request.user)
+            
+            logger.info(f"[get_trading_accounts] is_manager_client={is_manager_client}, is_parent_ib_client={is_parent_ib_client}")
+            
+            if not (is_manager_client or is_parent_ib_client):
+                logger.warning(f"Manager {request.user.username} ({request.user.user_id}) denied access to user {user.username} ({user.user_id}). User created_by: {user_created_by}, parent_ib: {parent_ib}")
+                return Response(
+                    {
+                        "error": "You don't have permission to view this user's trading accounts",
+                        "detail": "Managers can only access accounts of their direct clients"
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
             
         trading_accounts = TradingAccount.objects.filter(user=user)
 
