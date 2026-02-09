@@ -213,3 +213,4 @@ def get_trading_accounts(request, user_id):
         import traceback
         logger.error(traceback.format_exc())
         return Response({"error": str(e), "type": type(e).__name__}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
