@@ -213,4 +213,125 @@ def get_trading_accounts(request, user_id):
         import traceback
         logger.error(traceback.format_exc())
         return Response({"error": str(e), "type": type(e).__name__}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_non_demo_accounts(request):
+    """
+    API View to fetch all non-demo trading accounts (live, MAM, and investment accounts)
+    for admin internal transfers. Excludes demo and CENT accounts.
+    Optimized for fast loading - uses DB balance primarily.
+    Supports search by account_id and user_email.
+    """
+    try:
+        from django.core.cache import cache
+        from adminPanel.models import TradeGroup
+        
+        # Check if user has admin permissions
+        user_status = getattr(request.user, 'manager_admin_status', None)
+        is_admin = (
+            getattr(request.user, 'is_superuser', False) or
+            (user_status and 'Admin' in user_status)
+        )
+        
+        if not is_admin:
+            logger.warning(f"Non-admin user {request.user.email} attempted to access admin non-demo accounts")
+            return Response({
+                'error': 'Permission denied. Admin access required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get search parameter
+        search = (request.GET.get('search') or '').strip()
+        
+        # Create cache key based on search
+        cache_key = f"admin_non_demo_accounts_{search}" if search else "admin_non_demo_accounts_all"
+        
+        # Return cached payload if available (5 second cache for faster response)
+        cached_payload = cache.get(cache_key)
+        if cached_payload is not None:
+            logger.debug(f"Returning cached admin non-demo accounts (search: '{search}')")
+            return Response(cached_payload, status=status.HTTP_200_OK)
+        
+        # Pre-fetch all TradeGroup aliases for faster lookup
+        trade_groups = {tg.name: tg.alias for tg in TradeGroup.objects.all() if tg.alias}
+        
+        # Get non-demo accounts from database with optimized query
+        # Filter for standard (live), mam, and mam_investment accounts only
+        db_accounts_query = TradingAccount.objects.filter(
+            account_type__in=['standard', 'mam', 'mam_investment'],
+            balance__isnull=False  # Only accounts with balance data
+        ).exclude(
+            Q(account_type__iexact='demo') |
+            Q(group_name__icontains='demo')
+        ).select_related('user').only(
+            'account_id', 'account_name', 'account_type', 'balance', 
+            'group_name', 'user__email', 'user__first_name', 'user__last_name'
+        )
+        
+        # Apply search filter if provided
+        if search:
+            db_accounts_query = db_accounts_query.filter(
+                Q(account_id__icontains=search) |
+                Q(user__email__icontains=search) |
+                Q(user__first_name__icontains=search) |
+                Q(user__last_name__icontains=search)
+            )
+        
+        # Remove limit when searching, or increase limit significantly for all accounts
+        if search:
+            db_accounts = db_accounts_query  # No limit for search results
+        else:
+            db_accounts = db_accounts_query[:2000]  # Higher limit for all accounts (increased from 500)
+        
+        # Process accounts quickly without MT5 sync
+        accounts_data = []
+        
+        for db_account in db_accounts:
+            # Get group_alias from pre-fetched dict
+            group_alias = trade_groups.get(db_account.group_name, '')
+            
+            # Skip CENT accounts
+            is_cent = False
+            if group_alias and group_alias.upper() == 'CENT':
+                is_cent = True
+            elif db_account.group_name:
+                group_lower = db_account.group_name.lower()
+                if 'cent' in group_lower or '-c-' in group_lower:
+                    is_cent = True
+            
+            if is_cent:
+                continue
+            
+            account_data = {
+                'account_id': db_account.account_id,
+                'account_name': db_account.account_name or '',
+                'account_type': db_account.account_type,
+                'balance': db_account.balance or 0,
+                'group_name': db_account.group_name or '',
+                'group_alias': group_alias,
+                'user_email': db_account.user.email if db_account.user else '',
+                'user_name': f"{db_account.user.first_name} {db_account.user.last_name}".strip() if db_account.user else ''
+            }
+            
+            accounts_data.append(account_data)
+        
+        # Sort by account_id
+        accounts_data.sort(key=lambda x: x['account_id'])
+        
+        payload = accounts_data
+        
+        # Cache for 5 seconds for faster repeated access
+        cache.set(cache_key, payload, 5)
+        
+        logger.info(f"Returning {len(accounts_data)} admin non-demo accounts (search: '{search}')")
+        return Response(payload, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error fetching admin non-demo accounts: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return Response({
+            'error': 'Failed to fetch accounts',
+            'details': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

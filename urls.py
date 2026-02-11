@@ -116,7 +116,8 @@ from .views.prop_trading_views import package_list_view, create_prop_trading_pac
 from .views.admin_app_views import serve_admin_app
 from .views.trading_views import (
     trading_accounts_list,
-    get_trading_accounts
+    get_trading_accounts,
+    admin_non_demo_accounts
 )
 from .views.ib_commission_balance import get_ib_commission_balance
 # Import the new view for trading account history and positions
@@ -272,6 +273,7 @@ urlpatterns = [
     path('api/admin/withdraw/', WithdrawView.as_view(), name='api-admin-withdraw'),
     path('api/admin/ib-clients-withdraw/', ib_clients_withdrawal_transactions, name='api-ib-clients-withdraw'),
     path('api/admin/internal-transfer/', InternalTransferView.as_view(), name='api-admin-internal-transfer'),
+    path('api/admin/non-demo-accounts/', admin_non_demo_accounts, name='api-admin-non-demo-accounts'),
     path('api/admin/ib-clients-internal-transfer/', ib_clients_internal_transfer_transactions, name='api-ib-clients-internal-transfer'),
     path('api/admin/credit-in/', CreditInTransactionView.as_view(), name='api-admin-credit-in'),
     path('api/admin/credit-out/', CreditOutView.as_view(), name='api-admin-credit-out'),
