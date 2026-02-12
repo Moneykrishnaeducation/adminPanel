@@ -235,6 +235,23 @@ def cache_failed_account_lookup(login_id, data_type='balance', cache_duration=30
     """
     cache_key = f"mt5_failed_{login_id}_{data_type}"
     cache.set(cache_key, True, cache_duration)
+
+def get_cached_account_success(login_id):
+    """
+    Get cached successful account data (balance and equity) to reduce API calls.
+    Returns dict with balance and equity if cached, None if not cached or expired.
+    """
+    cache_key = f"mt5_success_{login_id}"
+    return cache.get(cache_key)
+
+def cache_account_success(login_id, balance, equity, cache_duration=30):
+    """
+    Cache successful account lookup to reduce repeated API calls.
+    cache_duration: seconds to cache (default 30 seconds for balance refresher)
+    """
+    cache_key = f"mt5_success_{login_id}"
+    data = {'balance': balance, 'equity': equity, 'timestamp': time.time()}
+    cache.set(cache_key, data, cache_duration)
    
 class MT5ManagerAPI:
     def __init__(self):
@@ -848,65 +865,80 @@ class MT5ManagerActions:
         return False
 
     @ensure_connected
-    def get_balance(self, login_id):
+    def get_account_data(self, login_id, use_cache=True):
+        """
+        Get both balance and equity in a single API call with optional caching.
+        Returns dict with 'balance' and 'equity' keys.
+        """
         try:
+            # Check cache first if enabled
+            if use_cache:
+                cached_success = get_cached_account_success(login_id)
+                if cached_success:
+                    return {
+                        'balance': cached_success['balance'],
+                        'equity': cached_success['equity']
+                    }
+
             # Check if this account lookup recently failed
             cached_failure = get_cached_account_data(login_id, 'balance')
             if cached_failure:
-                return 0.0  # Return 0 for known failed accounts without API call
+                return {'balance': 0.0, 'equity': 0.0}
            
+            if not self.manager:
+                return {'balance': 0.0, 'equity': 0.0}
+
             account = self.manager.UserAccountGet(int(login_id))
             if account:
-                return account.Balance
+                balance = float(account.Balance)
+                equity = float(account.Equity)
+                
+                # Cache successful result
+                if use_cache:
+                    cache_account_success(login_id, balance, equity)
+                    
+                return {'balance': balance, 'equity': equity}
            
-            # Account not found - cache the failure and conditionally log error
-            cache_failed_account_lookup(login_id, 'balance', 300)  # Cache for 5 minutes
+            # Account not found - cache the failure
+            cache_failed_account_lookup(login_id, 'balance', 300)
+            cache_failed_account_lookup(login_id, 'equity', 300)
 
             # Attempt to remove stale DB rows referencing this MT5 login
             try:
-                _remove_trading_account_from_db(login_id, reason='balance lookup')
+                _remove_trading_account_from_db(login_id, reason='account data lookup')
             except Exception:
-                # Swallow exceptions here; we'll still log the account-not-found event
                 pass
 
-            if should_log_error(login_id, 'balance_not_found'):
-                # logger.warning(f"MT5 account not found for login_id: {login_id} (balance lookup)")
-                pass
-            return 0.0  # Return 0 balance instead of False for better error handling
+            if should_log_error(login_id, 'account_not_found'):
+                logger.warning(f"MT5 account not found for login_id: {login_id}")
+            return {'balance': 0.0, 'equity': 0.0}
+            
+        except Exception as e:
+            if should_log_error(login_id, 'account_error'):
+                logger.error(f"Error in get_account_data for {login_id}: {str(e)}")
+            return {'balance': 0.0, 'equity': 0.0}
+
+    @ensure_connected  
+    def get_balance(self, login_id):
+        try:
+            # Use the optimized method that caches results
+            account_data = self.get_account_data(login_id)
+            return account_data['balance']
         except Exception as e:
             if should_log_error(login_id, 'balance_error'):
                 logger.error(f"Error in get_balance for {login_id}: {str(e)}")
-            return 0.0  # Return 0 balance on error
+            return 0.0
 
     @ensure_connected
     def get_equity(self, login_id):
         try:
-            # Check if this account lookup recently failed
-            cached_failure = get_cached_account_data(login_id, 'equity')
-            if cached_failure:
-                return 0.0  # Return 0 for known failed accounts without API call
-           
-            account = self.manager.UserAccountGet(int(login_id))
-            if account:
-                return account.Equity
-           
-            # Account not found - cache the failure and conditionally log error
-            cache_failed_account_lookup(login_id, 'equity', 300)  # Cache for 5 minutes
-
-            # Attempt to remove stale DB rows referencing this MT5 login
-            try:
-                _remove_trading_account_from_db(login_id, reason='equity lookup')
-            except Exception:
-                pass
-
-            if should_log_error(login_id, 'equity_not_found'):
-                # logger.warning(f"MT5 account not found for login_id: {login_id} (equity lookup)")
-                pass
-            return 0.0  # Return 0 equity instead of False for better error handling
+            # Use the optimized method that caches results
+            account_data = self.get_account_data(login_id)
+            return account_data['equity']
         except Exception as e:
             if should_log_error(login_id, 'equity_error'):
                 logger.error(f"Error in get_equity for {login_id}: {str(e)}")
-            return 0.0  # Return 0 equity on error
+            return 0.0
 
     @ensure_connected
     def total_account_profit(self, login_id):
