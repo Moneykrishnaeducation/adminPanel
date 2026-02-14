@@ -300,6 +300,24 @@ class EmailSender:
         )
 
     @staticmethod
+    def send_pamm_distribution_notification(user_email, user_name, account_id, amount, transaction_id, transaction_date, role='investor'):
+        """Send notification when a PAMM profit distribution is made to a user."""
+        # Choose template by role if needed; use 'pamm_distribution' template
+        return EmailSender._send_email(
+            user_email,
+            'PAMM Profit Distribution',
+            'pamm_distribution',
+            {
+                'user_name': user_name,
+                'account_id': account_id,
+                'amount': round(float(amount), 2),
+                'transaction_id': transaction_id,
+                'transaction_date': transaction_date,
+                'role': role
+            }
+        )
+
+    @staticmethod
     def send_new_account_creation(user_email, username, account_id, master_password, investor_password, mt5_server_name=None):
         """Send new trading account details"""
         # Get the MT5 server name from settings if not provided
