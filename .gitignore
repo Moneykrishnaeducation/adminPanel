@@ -3,6 +3,27 @@
 *.pyc
 *.pyo
 *.pyd
+*.py~
+*.pdb
 
 # Local broken migration copies (DO NOT COMMIT)
 migrations/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Django
+*.sqlite3
+*.sqlite
