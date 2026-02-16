@@ -1520,6 +1520,68 @@ class ApproveTransactionView(APIView):
 
             transaction.save()
 
+            # Handle PAMM pool balance update for PAMM deposits and withdrawals
+            if transaction.source == 'PAMM':
+                try:
+                    import re
+                    from decimal import Decimal
+                    from clientPanel.models import PAMAccount, PAMInvestment
+                    
+                    # Extract PAMM ID from description using regex pattern
+                    match = re.search(r'\(PAM (\d+)\)', transaction.description or '')
+                    if match:
+                        pamm_id = int(match.group(1))
+                        pamm = PAMAccount.objects.get(id=pamm_id)
+                        
+                        if transaction.transaction_type == 'deposit_trading':
+                            # For deposits: create or update investment and increase pool balance
+                            investment = PAMInvestment.objects.filter(
+                                pam_account=pamm,
+                                investor=transaction.user
+                            ).first()
+                            
+                            if investment:
+                                investment.amount = Decimal(str(investment.amount)) + Decimal(str(transaction.amount))
+                                investment.save()
+                            else:
+                                # First-time deposit: create new investment
+                                PAMInvestment.objects.create(
+                                    pam_account=pamm,
+                                    investor=transaction.user,
+                                    amount=Decimal(str(transaction.amount)),
+                                    profit_share=pamm.profit_share
+                                )
+                            
+                            # Increase manager's pool balance
+                            if hasattr(pamm, 'pool_balance'):
+                                pamm.pool_balance = Decimal(str(pamm.pool_balance)) + Decimal(str(transaction.amount))
+                            else:
+                                pamm.pool_balance = Decimal(str(transaction.amount))
+                            pamm.save()
+                            
+                        elif transaction.transaction_type == 'withdraw_trading':
+                            # For withdrawals: decrease investment and pool balance
+                            investment = PAMInvestment.objects.filter(
+                                pam_account=pamm,
+                                investor=transaction.user
+                            ).first()
+                            
+                            if investment:
+                                new_amount = Decimal(str(investment.amount)) - Decimal(str(transaction.amount))
+                                investment.amount = max(new_amount, Decimal('0'))
+                                investment.save()
+                            
+                            # Decrease manager's pool balance
+                            if hasattr(pamm, 'pool_balance'):
+                                new_pool = Decimal(str(pamm.pool_balance)) - Decimal(str(transaction.amount))
+                                pamm.pool_balance = max(new_pool, Decimal('0'))
+                                pamm.save()
+                except Exception as e:
+                    # Log the error but don't fail the approval
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Error updating PAMM pool balance for transaction {transaction.id}: {e}")
+
             ActivityLog.objects.create(
                 user=request.user,
                 activity=f"Approved transaction #{transaction.id} ({transaction.transaction_type})",

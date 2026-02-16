@@ -304,14 +304,12 @@ def admin_transactions_list(request):
 def pending_deposits_view(request):
     """Get pending deposit transactions"""
     try:
-        # Filter for pending deposits
+        # Filter for pending PAMM deposits only
         deposits = Transaction.objects.filter(
             transaction_type__in=['deposit', 'deposit_trading', 'deposit_commission'],
-            status='pending'
+            status='pending',
+            source='PAMM'
         ).select_related('user', 'trading_account')
-        
-        # Exclude CheesePay transactions
-        deposits = deposits.exclude(source='CheesePay')
         
         # Apply date filters if provided
         start_date = request.GET.get('start_date')
@@ -360,10 +358,11 @@ def pending_deposits_view(request):
 def pending_withdrawals_view(request):
     """Get pending withdrawal transactions"""
     try:
-        # Filter for pending withdrawals
+        # Filter for pending PAMM withdrawals only
         withdrawals = Transaction.objects.filter(
             status='pending',
-            transaction_type__in=['withdrawal', 'withdraw_trading', 'commission_withdrawal']
+            transaction_type__in=['withdrawal', 'withdraw_trading', 'commission_withdrawal'],
+            source='PAMM'
         ).select_related('user', 'trading_account')
         
         
