@@ -705,7 +705,39 @@ class DepositView(APIView):
                 logger.info("Deposit notification email sent successfully")
             except Exception as email_error:
                 logger.warning(f"Failed to send deposit email: {email_error}")
-                
+
+            # Handle PAM-related bookkeeping:
+            # If this deposit includes an `investment_id`, treat it as an investor deposit
+            # and credit the corresponding PAMInvestment. Otherwise, auto-credit manager capital
+            # for PAM-linked accounts when applicable.
+            investor_updated = False
+            investment_new_amount = None
+            manager_capital_updated = False
+            try:
+                from clientPanel.models import PAMAccount, PAMInvestment
+                investment_id = request.data.get('investment_id') or request.POST.get('investment_id')
+                if investment_id:
+                    try:
+                        inv = PAMInvestment.objects.select_for_update().get(pk=int(investment_id))
+                        inv.amount = Decimal(str(inv.amount or 0)) + Decimal(str(amount))
+                        inv.save()
+                        investor_updated = True
+                        investment_new_amount = float(inv.amount)
+                    except PAMInvestment.DoesNotExist:
+                        investor_updated = False
+                else:
+                    pam = PAMAccount.objects.filter(mt5_login=str(account_id)).first()
+                    if pam:
+                        try:
+                            pam.manager_capital = Decimal(str(pam.manager_capital or 0)) + Decimal(str(amount))
+                            pam.save()
+                            manager_capital_updated = True
+                        except Exception:
+                            manager_capital_updated = False
+            except Exception:
+                investor_updated = False
+                manager_capital_updated = False
+
             return Response({
                 "message": "Deposit processed successfully" + (" (Fallback Mode - MT5 Integration Failed)" if not mt5_success else ""),
                 "transaction_id": transaction.id,
@@ -717,7 +749,10 @@ class DepositView(APIView):
                 "created_at": transaction.created_at.isoformat(),
                 "mt5_integration": mt5_success,
                 "mt5_error": mt5_error if not mt5_success else None,
-                "fallback_mode": not mt5_success
+                "fallback_mode": not mt5_success,
+                "manager_capital_updated": manager_capital_updated,
+                "investor_updated": investor_updated,
+                "investment_new_amount": investment_new_amount
             }, status=status.HTTP_201_CREATED)
         
         except TradingAccount.DoesNotExist:
@@ -863,6 +898,30 @@ class WithdrawView(APIView):
                     related_object_type="Transaction"
                 )
                 
+                # Optionally debit manager capital if this trading account is linked to a PAMAccount
+                manager_debited = False
+                manager_capital_value = None
+                try:
+                    from clientPanel.models import PAMAccount
+                    pam = PAMAccount.objects.filter(mt5_login=str(account_id)).first()
+                    if pam:
+                        # Auto-debit manager capital for PAM-linked accounts on withdraw
+                        try:
+                            current = Decimal(str(pam.manager_capital or 0))
+                            deduct = Decimal(str(amount))
+                            new_val = current - deduct
+                            if new_val < 0:
+                                new_val = Decimal('0.00')
+                            pam.manager_capital = new_val
+                            pam.save()
+                            manager_debited = True
+                        except Exception:
+                            manager_debited = False
+                        manager_capital_value = float(pam.manager_capital)
+                except Exception:
+                    manager_debited = False
+                    manager_capital_value = None
+
                 # Send notification email
                 try:
                     send_withdrawal_email(trading_account.user, transaction)
@@ -881,7 +940,9 @@ class WithdrawView(APIView):
                     "comment": comment,
                     "status": "approved",
                     "created_at": transaction.created_at.isoformat(),
-                    "mt5_integration": True
+                    "mt5_integration": True,
+                    "manager_debited": manager_debited,
+                    "manager_capital": manager_capital_value
                 }, status=status.HTTP_201_CREATED)
                 
             else:
