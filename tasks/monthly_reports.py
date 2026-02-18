@@ -95,43 +95,81 @@ class MonthlyReportGenerator:
                     )
                     
                     if deals:
-                        for deal in deals:
-                            # Convert MT5 deal object to our format
-                            # Handle MT5 timestamp conversion
+                        # Group deals by order/position so that we can prefer entry records
+                        grouped = {}
+                        for idx, deal in enumerate(deals):
+                            key = getattr(deal, 'Order', None) or getattr(deal, 'OrderID', None) or getattr(deal, 'PositionID', None) or getattr(deal, 'Position', None) or f'idx_{idx}'
+                            grouped.setdefault(key, []).append(deal)
+
+                        for key, group in grouped.items():
                             try:
-                                # MT5 Time is usually Unix timestamp
+                                preferred = None
+                                for d in group:
+                                    if getattr(d, 'Entry', None) == 0:
+                                        preferred = d
+                                        break
+                                if preferred is None:
+                                    for d in group:
+                                        action = getattr(d, 'Action', None)
+                                        if action is None or action not in [2]:
+                                            preferred = d
+                                            break
+                                if preferred is None:
+                                    preferred = group[0]
+
+                                # If we only found an exit record, try a wider fetch to locate the entry record
+                                if preferred is not None and getattr(preferred, 'Entry', None) != 0:
+                                    try:
+                                        from datetime import timedelta
+                                        lookup = getattr(preferred, 'PositionID', None) or getattr(preferred, 'Position', None) or getattr(preferred, 'Order', None) or getattr(preferred, 'OrderID', None)
+                                        if lookup:
+                                            # expand window (30 days) to locate entry deal if available
+                                            wider_start = start_date - timedelta(days=30)
+                                            wider_end = end_date + timedelta(days=30)
+                                            try:
+                                                extra = mt5_service.get_closed_trades(account.account_id, wider_start, wider_end)
+                                                if extra:
+                                                    for ed in extra:
+                                                        if (getattr(ed, 'PositionID', None) == lookup or getattr(ed, 'Position', None) == lookup or getattr(ed, 'Order', None) == lookup or getattr(ed, 'OrderID', None) == lookup) and getattr(ed, 'Entry', None) == 0:
+                                                            preferred = ed
+                                                            break
+                                            except Exception:
+                                                pass
+                                    except Exception:
+                                        pass
+
+                                deal = preferred
+                                # Timestamp handling
                                 time_val = getattr(deal, 'Time', '')
                                 if isinstance(time_val, (int, float)) and time_val > 0:
                                     open_time = datetime.fromtimestamp(time_val).strftime('%Y-%m-%d %H:%M:%S')
                                 else:
                                     open_time = str(time_val)
-                                
                                 time_close_val = getattr(deal, 'TimeClose', time_val)
                                 if isinstance(time_close_val, (int, float)) and time_close_val > 0:
                                     close_time = datetime.fromtimestamp(time_close_val).strftime('%Y-%m-%d %H:%M:%S')
                                 else:
                                     close_time = open_time
-                            except:
-                                open_time = str(getattr(deal, 'Time', ''))
-                                close_time = str(getattr(deal, 'TimeClose', open_time))
-                            
-                            # Map MT5 action types
-                            action = getattr(deal, 'Action', 0)
-                            trade_type = 'Buy' if action == 0 else 'Sell' if action == 1 else f'Action_{action}'
-                            
-                            trade_data = {
-                                'open_time': open_time,
-                                'close_time': close_time,
-                                'symbol': getattr(deal, 'Symbol', ''),
-                                'type': trade_type,
-                                'volume': getattr(deal, 'Volume', 0) / 10000,  # Convert to lots
-                                'profit': getattr(deal, 'Profit', 0),
-                                'commission': getattr(deal, 'Commission', 0),
-                                'swap': getattr(deal, 'Storage', 0),
-                                'entry_type': getattr(deal, 'Entry', ''),  # 0=in, 1=out
-                                'account_id': account.account_id
-                            }
-                            all_trades.append(trade_data)
+
+                                action = getattr(deal, 'Action', None)
+                                trade_type = 'Buy' if action == 0 else 'Sell' if action == 1 else (f'Action_{action}' if action is not None else 'Unknown')
+
+                                trade_data = {
+                                    'open_time': open_time,
+                                    'close_time': close_time,
+                                    'symbol': getattr(deal, 'Symbol', ''),
+                                    'type': trade_type,
+                                    'volume': getattr(deal, 'Volume', 0) / 10000,  # Convert to lots
+                                    'profit': getattr(deal, 'Profit', 0),
+                                    'commission': getattr(deal, 'Commission', 0),
+                                    'swap': getattr(deal, 'Storage', 0),
+                                    'entry_type': getattr(deal, 'Entry', ''),  # 0=in, 1=out
+                                    'account_id': account.account_id
+                                }
+                                all_trades.append(trade_data)
+                            except Exception as inner_e:
+                                logger.warning(f"Error processing grouped deal {key} for account {account.account_id}: {inner_e}")
+                                continue
                             
                             # Accumulate totals
                             volume = getattr(deal, 'Volume', 0)
