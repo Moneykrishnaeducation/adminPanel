@@ -304,11 +304,10 @@ def admin_transactions_list(request):
 def pending_deposits_view(request):
     """Get pending deposit transactions"""
     try:
-        # Filter for pending PAMM deposits only
+        # Filter for pending deposits (including PAMM deposits)
         deposits = Transaction.objects.filter(
             transaction_type__in=['deposit', 'deposit_trading', 'deposit_commission'],
-            status='pending',
-            source='PAMM'
+            status='pending'
         ).select_related('user', 'trading_account')
         
         # Apply date filters if provided
@@ -358,13 +357,17 @@ def pending_deposits_view(request):
 def pending_withdrawals_view(request):
     """Get pending withdrawal transactions"""
     try:
-        # Filter for pending PAMM withdrawals only
+        # Filter for pending withdrawals (including PAMM withdrawals)
         withdrawals = Transaction.objects.filter(
             status='pending',
-            transaction_type__in=['withdrawal', 'withdraw_trading', 'commission_withdrawal'],
-            source='PAMM'
+            transaction_type__in=['withdrawal', 'withdraw_trading', 'commission_withdrawal']
         ).select_related('user', 'trading_account')
         
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Total pending withdrawals found: {withdrawals.count()}")
+        logger.info(f"Transaction types: {list(withdrawals.values_list('transaction_type', flat=True))}")
         
         # Apply date filters if provided
         start_date = request.GET.get('start_date')
@@ -404,6 +407,8 @@ def pending_withdrawals_view(request):
         })
         
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error in pending_withdrawals_view: {e}", exc_info=True)
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
@@ -529,6 +534,31 @@ def approve_transaction_api(request):
             return Response({"error": "You don't have permission to approve this transaction"}, 
                           status=status.HTTP_403_FORBIDDEN)
         
+        # Handle PAMM manager capital adjustments
+        if transaction.source in ['PAMM_MANAGER', 'PAMM']:
+            from clientPanel.models import PAMAccount
+            from decimal import Decimal
+            
+            # Find the PAMM account by mt5_login from trading_account
+            if transaction.trading_account:
+                pamm_account = PAMAccount.objects.filter(
+                    mt5_login=transaction.trading_account.account_id
+                ).first()
+                
+                if pamm_account and transaction.source == 'PAMM_MANAGER':
+                    # Manager deposit approved - increase manager_capital
+                    if transaction.transaction_type == 'deposit_trading':
+                        pamm_account.manager_capital = Decimal(str(pamm_account.manager_capital)) + Decimal(str(transaction.amount))
+                        pamm_account.save()
+                    
+                    # Manager withdrawal approved - decrease manager_capital
+                    elif transaction.transaction_type == 'withdraw_trading':
+                        current_capital = Decimal(str(pamm_account.manager_capital))
+                        withdrawal_amount = Decimal(str(transaction.amount))
+                        # Reduce capital (min 0)
+                        pamm_account.manager_capital = max(current_capital - withdrawal_amount, Decimal('0'))
+                        pamm_account.save()
+        
         # Update transaction status
         transaction.status = 'approved'
         transaction.approved_by = request.user
@@ -544,6 +574,8 @@ def approve_transaction_api(request):
     except Transaction.DoesNotExist:
         return Response({"error": "Transaction not found"}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error approving transaction: {e}", exc_info=True)
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
