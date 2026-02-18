@@ -15,6 +15,16 @@ class Command(BaseCommand):
             type=str,
             help='Month in format YYYY-MM for force-run or retry-failed actions',
         )
+        parser.add_argument(
+            '--user-id',
+            type=int,
+            help='Optional: send report only for this user id (used with force-run)'
+        )
+        parser.add_argument(
+            '--email',
+            type=str,
+            help='Optional: send report only for this user email (used with force-run)'
+        )
 
     def handle(self, *args, **options):
         action = options['action']
@@ -26,7 +36,7 @@ class Command(BaseCommand):
         elif action == 'status':
             self.show_status()
         elif action == 'force-run':
-            self.force_run(options['month'])
+            self.force_run(options['month'], options.get('user_id'), options.get('email'))
         elif action == 'retry-failed':
             self.retry_failed(options['month'])
 
@@ -93,8 +103,56 @@ class Command(BaseCommand):
                 self.style.ERROR(f'Error getting schedule info: {str(e)}')
             )
 
-    def force_run(self, month_year):
+    def force_run(self, month_year, user_id=None, user_email=None):
         """Force run monthly report generation"""
+        # If a single-user was requested, perform targeted generation+send
+        if user_id or user_email:
+            try:
+                from adminPanel.models import CustomUser
+                from adminPanel.tasks.monthly_reports import MonthlyReportGenerator
+
+                # Determine year and month
+                if month_year:
+                    year, month = map(int, month_year.split('-'))
+                else:
+                    from datetime import datetime
+                    now = datetime.now()
+                    if now.month == 1:
+                        year = now.year - 1
+                        month = 12
+                    else:
+                        year = now.year
+                        month = now.month - 1
+
+                user = None
+                if user_id:
+                    user = CustomUser.objects.filter(id=user_id).first()
+                elif user_email:
+                    user = CustomUser.objects.filter(email=user_email).first()
+
+                if not user:
+                    self.stdout.write(self.style.ERROR('User not found for provided id/email'))
+                    return
+
+                self.stdout.write(f'Force running monthly report generation for user: {user.email} ({year}-{month:02d})')
+                generator = MonthlyReportGenerator()
+                report = generator.create_monthly_report(user, year, month, force_regenerate=True)
+
+                if not report:
+                    self.stdout.write(self.style.ERROR('Report generation failed or returned no report object'))
+                    return
+
+                sent = generator.send_report_email(report)
+                if sent:
+                    self.stdout.write(self.style.SUCCESS(f'Report generated and emailed to {user.email}'))
+                else:
+                    self.stdout.write(self.style.ERROR(f'Report generated but failed to email {user.email}'))
+
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f'Force run for user failed: {str(e)}'))
+            return
+
+        # Default behavior: run for all users
         try:
             self.stdout.write('Force running monthly report generation...')
             results = monthly_reports_thread.force_run_monthly_reports(month_year)
