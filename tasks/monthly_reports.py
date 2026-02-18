@@ -124,9 +124,9 @@ class MonthlyReportGenerator:
                                         lookup = getattr(preferred, 'PositionID', None) or getattr(preferred, 'Position', None) or getattr(preferred, 'Order', None) or getattr(preferred, 'OrderID', None)
                                         if lookup:
                                             # expand window (30 days) to locate entry deal if available
-                                            wider_start = start_date - timedelta(days=30)
-                                            wider_end = end_date + timedelta(days=30)
                                             try:
+                                                wider_start = start_date - timedelta(days=30)
+                                                wider_end = end_date + timedelta(days=30)
                                                 extra = mt5_service.get_closed_trades(account.account_id, wider_start, wider_end)
                                                 if extra:
                                                     for ed in extra:
