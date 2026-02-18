@@ -1521,7 +1521,7 @@ class ApproveTransactionView(APIView):
             transaction.save()
 
             # Handle PAMM pool balance update for PAMM deposits and withdrawals
-            if transaction.source == 'PAMM':
+            if transaction.source in ('PAMM', 'PAMM_MANAGER'):
                 try:
                     import re
                     from decimal import Decimal
@@ -1534,48 +1534,106 @@ class ApproveTransactionView(APIView):
                         pamm = PAMAccount.objects.get(id=pamm_id)
                         
                         if transaction.transaction_type == 'deposit_trading':
-                            # For deposits: create or update investment and increase pool balance
-                            investment = PAMInvestment.objects.filter(
-                                pam_account=pamm,
-                                investor=transaction.user
-                            ).first()
+                            # Distinguish between manager and investor deposits
+                            is_manager_deposit = (transaction.user == pamm.manager)
                             
-                            if investment:
-                                investment.amount = Decimal(str(investment.amount)) + Decimal(str(transaction.amount))
-                                investment.save()
+                            if is_manager_deposit:
+                                # MANAGER DEPOSIT: Increase manager capital and pool
+                                pamm.manager_capital = Decimal(str(pamm.manager_capital or 0)) + Decimal(str(transaction.amount))
                             else:
-                                # First-time deposit: create new investment
-                                PAMInvestment.objects.create(
+                                # INVESTOR DEPOSIT: Create/update investment record
+                                investment = PAMInvestment.objects.filter(
                                     pam_account=pamm,
-                                    investor=transaction.user,
-                                    amount=Decimal(str(transaction.amount)),
-                                    profit_share=pamm.profit_share
-                                )
+                                    investor=transaction.user
+                                ).first()
+                                
+                                if investment:
+                                    investment.amount = Decimal(str(investment.amount)) + Decimal(str(transaction.amount))
+                                    investment.save()
+                                else:
+                                    # First-time deposit: create new investment
+                                    PAMInvestment.objects.create(
+                                        pam_account=pamm,
+                                        investor=transaction.user,
+                                        amount=Decimal(str(transaction.amount)),
+                                        profit_share=pamm.profit_share
+                                    )
                             
-                            # Increase manager's pool balance
-                            if hasattr(pamm, 'pool_balance'):
-                                pamm.pool_balance = Decimal(str(pamm.pool_balance)) + Decimal(str(transaction.amount))
+                            # Increase pool ledger balance for both manager and investor deposits
+                            amt = Decimal(str(transaction.amount))
+                            current_pool = Decimal(str(pamm.pool_balance))
+                            if pamm._pool_balance_ledger is not None:
+                                pamm._pool_balance_ledger = Decimal(str(pamm._pool_balance_ledger)) + amt
                             else:
-                                pamm.pool_balance = Decimal(str(transaction.amount))
+                                pamm._pool_balance_ledger = current_pool + amt
                             pamm.save()
                             
                         elif transaction.transaction_type == 'withdraw_trading':
-                            # For withdrawals: decrease investment and pool balance
-                            investment = PAMInvestment.objects.filter(
-                                pam_account=pamm,
-                                investor=transaction.user
-                            ).first()
+                            # Distinguish between manager and investor withdrawals
+                            is_manager_withdrawal = (transaction.user == pamm.manager)
                             
-                            if investment:
-                                new_amount = Decimal(str(investment.amount)) - Decimal(str(transaction.amount))
-                                investment.amount = max(new_amount, Decimal('0'))
-                                investment.save()
-                            
-                            # Decrease manager's pool balance
-                            if hasattr(pamm, 'pool_balance'):
-                                new_pool = Decimal(str(pamm.pool_balance)) - Decimal(str(transaction.amount))
-                                pamm.pool_balance = max(new_pool, Decimal('0'))
-                                pamm.save()
+                            if is_manager_withdrawal:
+                                # MANAGER WITHDRAWAL: follow profit-first -> trading profit -> capital
+                                amount = Decimal(str(transaction.amount))
+                                remaining = amount
+
+                                # 1) Deduct from manager profit-share from investors ledger first
+                                computed_total_share = Decimal('0.00')
+                                for inv in pamm.investments.all():
+                                    computed_total_share += inv.manager_profit_share_amount
+
+                                withdrawn_share = Decimal(str(pamm._manager_profit_share_withdrawn or 0))
+                                available_mps = max(computed_total_share - withdrawn_share, Decimal('0'))
+
+                                take_from_mps = min(available_mps, remaining)
+                                if take_from_mps > 0:
+                                    pamm._manager_profit_share_withdrawn = withdrawn_share + take_from_mps
+                                    remaining -= take_from_mps
+
+                                # 2) If still remaining, deduct from trading profit (only if positive)
+                                if remaining > 0 and pamm.manager_profit_loss_amount > 0:
+                                    use = min(remaining, pamm.manager_profit_loss_amount)
+                                    pamm.manager_profit_loss_amount -= use
+                                    remaining -= use
+
+                                # 3) If still remaining, reduce manager capital (last resort)
+                                if remaining > 0:
+                                    pamm.manager_capital -= remaining
+
+                                pamm.save(update_fields=[
+                                    'manager_capital',
+                                    'manager_profit_loss_amount',
+                                    '_manager_profit_share_withdrawn'
+                                ])
+                            else:
+                                # INVESTOR WITHDRAWAL: Calculate proportional pool reduction
+                                # DO NOT modify investment.amount - it's used for allocation percentage
+                                
+                                investment = PAMInvestment.objects.filter(
+                                    pam_account=pamm,
+                                    investor=transaction.user
+                                ).first()
+                                
+                                if investment and hasattr(pamm, 'pool_balance'):
+                                    # Calculate proportional pool reduction accounting for:
+                                    # - Investor's allocation percentage (their share of pool)
+                                    # - Manager's profit share (investor keeps a % of profits)
+                                    
+                                    allocation_pct = Decimal(str(investment.allocation_percentage)) / Decimal('100')
+                                    manager_profit_share_pct = Decimal(str(pamm.profit_share)) / Decimal('100')
+                                    investor_profit_retention = Decimal('1') - manager_profit_share_pct
+                                    
+                                    if allocation_pct > 0 and investor_profit_retention > 0:
+                                        # Formula: pool_reduction = withdrawal / (allocation% × profit_retention%)
+                                        pool_reduction = Decimal(str(transaction.amount)) / (allocation_pct * investor_profit_retention)
+                                        current_pool = pamm.pool_balance
+                                        pamm._pool_balance_ledger = max(current_pool - pool_reduction, Decimal('0'))
+                                        pamm.save()
+                                    else:
+                                        # Fallback for edge cases
+                                        current_pool = pamm.pool_balance
+                                        pamm._pool_balance_ledger = max(current_pool - Decimal(str(transaction.amount)), Decimal('0'))
+                                        pamm.save()
                 except Exception as e:
                     # Log the error but don't fail the approval
                     import logging
