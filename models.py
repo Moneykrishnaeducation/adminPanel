@@ -2334,3 +2334,33 @@ class ChatMessage(models.Model):
     
     def __str__(self):
         return f"Chat: {self.sender.email} -> {self.recipient.email if self.recipient else 'Admin'} ({self.created_at})"
+
+
+class DailyTradingReport(models.Model):
+    """Record of daily trading report generation/sends per trading account."""
+
+    trading_account = models.ForeignKey(
+        'TradingAccount',
+        on_delete=models.CASCADE,
+        related_name='daily_reports'
+    )
+    report_date = models.DateField(help_text='Date for which this report was generated (UTC)')
+    status = models.CharField(
+        max_length=20,
+        choices=[('pending', 'Pending'), ('sent', 'Sent'), ('failed', 'Failed')],
+        default='pending'
+    )
+    attempts = models.PositiveIntegerField(default=0)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    file_url = models.TextField(null=True, blank=True, help_text='Path or URL to the generated report file')
+    last_error = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('trading_account', 'report_date')
+        indexes = [models.Index(fields=['report_date']), models.Index(fields=['status'])]
+
+    def __str__(self):
+        return f"DailyReport {self.trading_account.account_id} - {self.report_date} ({self.status})"

@@ -95,43 +95,81 @@ class MonthlyReportGenerator:
                     )
                     
                     if deals:
-                        for deal in deals:
-                            # Convert MT5 deal object to our format
-                            # Handle MT5 timestamp conversion
+                        # Group deals by order/position so that we can prefer entry records
+                        grouped = {}
+                        for idx, deal in enumerate(deals):
+                            key = getattr(deal, 'Order', None) or getattr(deal, 'OrderID', None) or getattr(deal, 'PositionID', None) or getattr(deal, 'Position', None) or f'idx_{idx}'
+                            grouped.setdefault(key, []).append(deal)
+
+                        for key, group in grouped.items():
                             try:
-                                # MT5 Time is usually Unix timestamp
+                                preferred = None
+                                for d in group:
+                                    if getattr(d, 'Entry', None) == 0:
+                                        preferred = d
+                                        break
+                                if preferred is None:
+                                    for d in group:
+                                        action = getattr(d, 'Action', None)
+                                        if action is None or action not in [2]:
+                                            preferred = d
+                                            break
+                                if preferred is None:
+                                    preferred = group[0]
+
+                                # If we only found an exit record, try a wider fetch to locate the entry record
+                                if preferred is not None and getattr(preferred, 'Entry', None) != 0:
+                                    try:
+                                        from datetime import timedelta
+                                        lookup = getattr(preferred, 'PositionID', None) or getattr(preferred, 'Position', None) or getattr(preferred, 'Order', None) or getattr(preferred, 'OrderID', None)
+                                        if lookup:
+                                            # expand window (30 days) to locate entry deal if available
+                                            try:
+                                                wider_start = start_date - timedelta(days=30)
+                                                wider_end = end_date + timedelta(days=30)
+                                                extra = mt5_service.get_closed_trades(account.account_id, wider_start, wider_end)
+                                                if extra:
+                                                    for ed in extra:
+                                                        if (getattr(ed, 'PositionID', None) == lookup or getattr(ed, 'Position', None) == lookup or getattr(ed, 'Order', None) == lookup or getattr(ed, 'OrderID', None) == lookup) and getattr(ed, 'Entry', None) == 0:
+                                                            preferred = ed
+                                                            break
+                                            except Exception:
+                                                pass
+                                    except Exception:
+                                        pass
+
+                                deal = preferred
+                                # Timestamp handling
                                 time_val = getattr(deal, 'Time', '')
                                 if isinstance(time_val, (int, float)) and time_val > 0:
                                     open_time = datetime.fromtimestamp(time_val).strftime('%Y-%m-%d %H:%M:%S')
                                 else:
                                     open_time = str(time_val)
-                                
                                 time_close_val = getattr(deal, 'TimeClose', time_val)
                                 if isinstance(time_close_val, (int, float)) and time_close_val > 0:
                                     close_time = datetime.fromtimestamp(time_close_val).strftime('%Y-%m-%d %H:%M:%S')
                                 else:
                                     close_time = open_time
-                            except:
-                                open_time = str(getattr(deal, 'Time', ''))
-                                close_time = str(getattr(deal, 'TimeClose', open_time))
-                            
-                            # Map MT5 action types
-                            action = getattr(deal, 'Action', 0)
-                            trade_type = 'Buy' if action == 0 else 'Sell' if action == 1 else f'Action_{action}'
-                            
-                            trade_data = {
-                                'open_time': open_time,
-                                'close_time': close_time,
-                                'symbol': getattr(deal, 'Symbol', ''),
-                                'type': trade_type,
-                                'volume': getattr(deal, 'Volume', 0) / 10000,  # Convert to lots
-                                'profit': getattr(deal, 'Profit', 0),
-                                'commission': getattr(deal, 'Commission', 0),
-                                'swap': getattr(deal, 'Storage', 0),
-                                'entry_type': getattr(deal, 'Entry', ''),  # 0=in, 1=out
-                                'account_id': account.account_id
-                            }
-                            all_trades.append(trade_data)
+
+                                action = getattr(deal, 'Action', None)
+                                trade_type = 'Buy' if action == 0 else 'Sell' if action == 1 else (f'Action_{action}' if action is not None else 'Unknown')
+
+                                trade_data = {
+                                    'open_time': open_time,
+                                    'close_time': close_time,
+                                    'symbol': getattr(deal, 'Symbol', ''),
+                                    'type': trade_type,
+                                    'volume': getattr(deal, 'Volume', 0) / 10000,  # Convert to lots
+                                    'profit': getattr(deal, 'Profit', 0),
+                                    'commission': getattr(deal, 'Commission', 0),
+                                    'swap': getattr(deal, 'Storage', 0),
+                                    'entry_type': getattr(deal, 'Entry', ''),  # 0=in, 1=out
+                                    'account_id': account.account_id
+                                }
+                                all_trades.append(trade_data)
+                            except Exception as inner_e:
+                                logger.warning(f"Error processing grouped deal {key} for account {account.account_id}: {inner_e}")
+                                continue
                             
                             # Accumulate totals
                             volume = getattr(deal, 'Volume', 0)
@@ -349,80 +387,93 @@ class MonthlyReportGenerator:
                 summary_context['trades'] = []
                 # Include deposit/withdrawal transactions for the summary PDF
                 try:
-                        # Only include approved transactions and map to credit/debit
-                        trans_qs = Transaction.objects.filter(
-                            user=user,
-                            created_at__gte=start_date,
-                            created_at__lt=end_date,
-                            status='approved',
-                            transaction_type__in=[
-                                'deposit_trading', 'withdraw_trading', 'commission_withdrawal',
-                                'credit_in', 'credit_out'
-                            ]
-                        ).select_related('trading_account').order_by('created_at')
+                                # Only include approved transactions and map to credit/debit
+                                # Include transactions either explicitly linked to the user
+                                # or linked via the user's trading accounts
+                                user_accounts = list(user.trading_accounts.values_list('id', flat=True))
+                                # Include all transaction statuses so statements reflect pending/failed items too
+                                trans_qs = Transaction.objects.filter(
+                                    created_at__gte=start_date,
+                                    created_at__lt=end_date,
+                                    transaction_type__in=[
+                                        'deposit_trading', 'withdraw_trading', 'commission_withdrawal',
+                                        'credit_in', 'credit_out'
+                                    ]
+                                ).filter(
+                                    Q(user=user) | Q(trading_account__id__in=user_accounts)
+                                ).select_related('trading_account').order_by('created_at')
 
-                        # Group transactions by account_id (use 'N/A' when trading_account is null)
-                        tx_by_acc = {}
-                        for t in trans_qs:
-                            acc_id = t.trading_account.account_id if t.trading_account else 'N/A'
-                            tx_by_acc.setdefault(acc_id, []).append(t)
+                                # Group transactions by account_id (use 'N/A' when trading_account is null)
+                                tx_by_acc = {}
+                                for t in trans_qs:
+                                    raw_acc = t.trading_account.account_id if t.trading_account else 'N/A'
+                                    acc_id = str(raw_acc)
+                                    tx_by_acc.setdefault(acc_id, []).append(t)
 
-                        transactions = []
-                        # For each account, compute starting balance at start_date and running available
-                        for acc_id, tlist in tx_by_acc.items():
-                            # Try to get TradingAccount object to determine current balance
-                            start_balance = None
-                            try:
-                                if acc_id != 'N/A':
-                                    ta = TradingAccount.objects.filter(account_id=acc_id).first()
-                                    if ta:
-                                        # Net change from start_date to now (credits - debits)
-                                        post_net = Transaction.objects.filter(
-                                            trading_account=ta,
-                                            created_at__gte=start_date
-                                        ).exclude(status='rejected').aggregate(
-                                            credits=Sum('amount', filter=Q(transaction_type__in=['deposit_trading','credit_in'])),
-                                            debits=Sum('amount', filter=Q(transaction_type__in=['withdraw_trading','credit_out']))
-                                        )
-                                        credits = post_net.get('credits') or Decimal('0.00')
-                                        debits = post_net.get('debits') or Decimal('0.00')
-                                        net_since = Decimal(credits) - Decimal(debits)
-                                        # Current balance minus net change since start_date gives balance at start_date
-                                        start_balance = Decimal(ta.balance) - net_since
-                            except Exception:
-                                start_balance = None
+                                # Build a structured transactions dict per account for the summary PDF
+                                transactions_by_account = {}
+                                for acc_id, tlist in tx_by_acc.items():
+                                    # Try to get TradingAccount object to determine starting balance
+                                    start_balance = None
+                                    try:
+                                        if acc_id != 'N/A':
+                                            ta = TradingAccount.objects.filter(account_id=acc_id).first()
+                                            if ta:
+                                                post_net = Transaction.objects.filter(
+                                                    trading_account=ta,
+                                                    created_at__gte=start_date
+                                                ).exclude(status='rejected').aggregate(
+                                                    credits=Sum('amount', filter=Q(transaction_type__in=['deposit_trading','credit_in'])),
+                                                    debits=Sum('amount', filter=Q(transaction_type__in=['withdraw_trading','credit_out']))
+                                                )
+                                                credits = post_net.get('credits') or Decimal('0.00')
+                                                debits = post_net.get('debits') or Decimal('0.00')
+                                                net_since = Decimal(credits) - Decimal(debits)
+                                                start_balance = Decimal(ta.balance) - net_since
+                                    except Exception:
+                                        start_balance = None
 
-                            running = Decimal('0.00')
-                            # Iterate transactions in chronological order
-                            for t in tlist:
-                                amount = Decimal(str(t.amount))
-                                credit = Decimal('0.00')
-                                debit = Decimal('0.00')
-                                if t.transaction_type in ('deposit_trading', 'credit_in'):
-                                    credit = amount
-                                    running += credit
-                                elif t.transaction_type in ('withdraw_trading', 'credit_out'):
-                                    debit = amount
-                                    running -= debit
-                                # available = start_balance + running (if start_balance known)
-                                if start_balance is not None:
-                                    available = start_balance + running
-                                else:
-                                    available = running
+                                    running = Decimal('0.00')
+                                    rows = []
+                                    for t in tlist:
+                                        amount = Decimal(str(t.amount))
+                                        credit = Decimal('0.00')
+                                        debit = Decimal('0.00')
+                                        if t.transaction_type in ('deposit_trading', 'credit_in'):
+                                            credit = amount
+                                            running += credit
+                                        elif t.transaction_type in ('withdraw_trading', 'credit_out'):
+                                            debit = amount
+                                            running -= debit
 
-                                transactions.append({
-                                    'date': t.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                                    'account_id': acc_id,
-                                    'credit': f"{credit:.2f}" if credit else '',
-                                    'debit': f"{debit:.2f}" if debit else '',
-                                    'available': f"{available:.2f}",
-                                    'description': t.description or ''
-                                })
+                                        if start_balance is not None:
+                                            available = start_balance + running
+                                        else:
+                                            available = running
 
-                        summary_context['transactions'] = transactions
+                                        rows.append({
+                                            'date': t.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                                            'account_id': acc_id,
+                                            'credit': f"{credit:.2f}" if credit else '',
+                                            'debit': f"{debit:.2f}" if debit else '',
+                                            'available': f"{available:.2f}",
+                                            'description': t.description or ''
+                                        })
+
+                                    # Normalize key to string for template lookup
+                                    transactions_by_account[str(acc_id)] = rows
+
+                                # Provide both grouped and flattened transaction lists for compatibility
+                                summary_context['transactions_by_account'] = transactions_by_account
+                                # Flattened list kept for templates that expect a single list
+                                flat = []
+                                for acc_rows in transactions_by_account.values():
+                                    flat.extend(acc_rows)
+                                summary_context['transactions'] = flat
                 except Exception as e:
                     logger.warning(f"Failed to load transactions for summary PDF for {user.email}: {e}")
                     summary_context['transactions'] = []
+                    summary_context['transactions_by_account'] = {}
                 summary_html = template.render(Context(summary_context))
                 summary_pdf = self._convert_html_to_pdf(summary_html, user, year, month)
                 summary_name = f"monthly_report_{user.user_id}_{year}_{month:02d}_summary.pdf"
@@ -443,6 +494,11 @@ class MonthlyReportGenerator:
                     acc_context['starting_balance'] = acc.get('balance')
                     acc_context['ending_balance'] = acc.get('balance')
                     acc_context['trades'] = acc_trades
+                        # Attach account-specific transactions when available
+                    try:
+                        acc_context['transactions'] = summary_context.get('transactions_by_account', {}).get(acc_id, [])
+                    except Exception:
+                        acc_context['transactions'] = []
                     # Mark this as an account-level PDF so template renders trade history
                     acc_context['is_summary'] = False
                     acc_html = template.render(Context(acc_context))
@@ -460,39 +516,57 @@ class MonthlyReportGenerator:
     def _convert_html_to_pdf(self, html_content, user, year, month):
         """Convert HTML content to PDF"""
         try:
-            # Try using weasyprint first (better HTML/CSS support)
+            # Prefer HTML-based rendering. Try WeasyPrint first (best CSS support)
             try:
                 import weasyprint
                 pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
                 logger.info(f"Successfully generated PDF using WeasyPrint for {user.email}")
                 return pdf_bytes
             except ImportError as ie:
-                logger.warning(f"WeasyPrint not available, falling back to xhtml2pdf: {ie}")
+                logger.warning(f"WeasyPrint not available: {ie}")
             except Exception as we:
-                logger.warning(f"WeasyPrint failed (missing system libs?), falling back to xhtml2pdf: {we}")
-            
-            # Fallback to xhtml2pdf (pure Python, works on Windows without system deps)
+                logger.warning(f"WeasyPrint failed (system libs?): {we}")
+
+            # Sanitize HTML for XHTML-compatible renderers
+            try:
+                sanitized = html_content.replace('<br>', '<br/>')
+            except Exception:
+                sanitized = html_content
+
+            # Next try xhtml2pdf (pisa) in XHTML mode
             try:
                 from xhtml2pdf import pisa
                 from io import BytesIO
-                
+
                 result = BytesIO()
-                pdf = pisa.CreatePDF(BytesIO(html_content.encode('utf-8')), dest=result)
-                
-                if not pdf.err:
-                    logger.info(f"Successfully generated PDF using xhtml2pdf for {user.email}")
-                    return result.getvalue()
+                # Use xhtml=True so parser treats input as XHTML-compatible HTML
+                pdf = pisa.CreatePDF(BytesIO(sanitized.encode('utf-8')), dest=result, xhtml=True)
+
+                out_bytes = result.getvalue()
+                # Accept output if it appears to be a valid PDF even when pisa reports non-zero errors
+                if out_bytes and out_bytes.startswith(b'%PDF'):
+                    logger.info(f"xhtml2pdf produced PDF bytes for {user.email} (accepting despite parser warnings)")
+                    return out_bytes
                 else:
-                    logger.warning(f"xhtml2pdf reported errors, falling back to reportlab")
+                    logger.error(f"xhtml2pdf failed to produce valid PDF for {user.email}; parser err={getattr(pdf,'err',None)}")
             except ImportError:
-                logger.warning("xhtml2pdf not available, falling back to reportlab")
+                logger.warning("xhtml2pdf not available on this system")
             except Exception as xe:
-                logger.warning(f"xhtml2pdf failed, falling back to reportlab: {xe}")
-            
-            # Final fallback to reportlab with basic styling
-            logger.info(f"Using reportlab fallback for {user.email}")
-            pdf_bytes = self._generate_simple_pdf_report(user, year, month)
-            return pdf_bytes
+                logger.error(f"xhtml2pdf failed for {user.email}: {xe}")
+
+            # If both HTML-based converters fail, write sanitized HTML to a debug file
+            try:
+                import os
+                debug_dir = os.path.join(getattr(settings, 'BASE_DIR', '.'), 'report_debug')
+                os.makedirs(debug_dir, exist_ok=True)
+                debug_path = os.path.join(debug_dir, f'report_debug_{getattr(user, "id", "unknown")}_{year}_{month:02d}.html')
+                with open(debug_path, 'w', encoding='utf-8') as f:
+                    f.write(sanitized)
+                logger.error(f'HTML to PDF conversion failed; sanitized HTML written to {debug_path}')
+            except Exception as de:
+                logger.error(f'Failed to write debug HTML file: {de}')
+
+            raise RuntimeError('HTML to PDF conversion failed: WeasyPrint/xhtml2pdf unavailable or errored')
 
         except Exception as e:
             logger.error(f"Failed to convert HTML to PDF for user {user.email}: {e}")
@@ -568,11 +642,11 @@ class MonthlyReportGenerator:
             elements.append(summary_table)
             elements.append(Spacer(1, 12))
             
-            # Add note about password protection (show example only, not actual password)
+            # Add note about PDF access — not password protected
             password_note = (
-                "<b>Important:</b> This PDF is password protected.<br>"
-                "Example password: <b>JOHN1983</b> (first 4 letters of your first name in UPPERCASE + first 4 digits of your birth year)"
+                "<b>Important:</b> This PDF is not password protected."
             )
+            # Use sanitized line breaks for reportlab paragraph
             elements.append(Paragraph(password_note, styles['Normal']))
             
             # Build PDF
@@ -602,14 +676,34 @@ class MonthlyReportGenerator:
                 logger.info(f"Report for {user.email} {year}-{month:02d} already completed")
                 return report
             
-            # Generate PDF (now could be a ZIP containing multiple PDFs)
-            logger.info(f"Generating PDF report for {user.email} {year}-{month:02d}")
-            file_bytes = self.generate_pdf_report(user, year, month)
+            # Generate PDF using the new HTML-based service generator
+            logger.info(f"Generating PDF report (HTML template) for {user.email} {year}-{month:02d}")
+            try:
+                from adminPanel.services.monthly_report_generator import MonthlyTradeReportGenerator
 
-            # Decide on filename extension (zip if multiple PDFs)
-            # Our generator returns a ZIP archive (bytes) containing per-account PDFs
-            filename = f"monthly_report_{user.user_id}_{year}_{month:02d}.zip"
-            report.report_file.save(filename, ContentFile(file_bytes))
+                gen = MonthlyTradeReportGenerator(user, datetime(year, month, 1))
+                pdf_path = gen.generate_html_pdf_report()
+
+                # Read PDF bytes and save to report_file
+                with open(pdf_path, 'rb') as pf:
+                    file_bytes = pf.read()
+
+                filename = f"monthly_report_{user.user_id}_{year}_{month:02d}.pdf"
+                report.report_file.save(filename, ContentFile(file_bytes))
+
+                # Clean up temp file if generator returned a temp path
+                try:
+                    import os
+                    if pdf_path and os.path.exists(pdf_path):
+                        os.remove(pdf_path)
+                except Exception:
+                    pass
+            except Exception as gen_e:
+                logger.error(f"HTML generator failed: {gen_e}")
+                # Fallback to previous generator to avoid blocking report creation
+                file_bytes = self.generate_pdf_report(user, year, month)
+                filename = f"monthly_report_{user.user_id}_{year}_{month:02d}.zip"
+                report.report_file.save(filename, ContentFile(file_bytes))
             
             # Update report statistics
             trading_data = self.get_trading_data_from_mt5(

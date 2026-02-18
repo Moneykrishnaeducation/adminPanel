@@ -489,29 +489,78 @@ class MonthlyTradeReportGenerator:
             trades = []
             # Add closed trades (deals)
             if deals:
-                for deal in deals:
+                # Group deals by order/position id when possible so we can prefer the entry record
+                grouped = {}
+                for idx, deal in enumerate(deals):
+                    key = getattr(deal, 'Order', None) or getattr(deal, 'OrderID', None) or getattr(deal, 'PositionID', None) or getattr(deal, 'Position', None) or f'idx_{idx}'
+                    grouped.setdefault(key, []).append(deal)
+
+                for key, group in grouped.items():
                     try:
-                        # Filter for actual trade deals (buy/sell, not deposits/withdrawals)
+                        # Prefer an entry deal (Entry == 0) if available
+                        preferred = None
+                        for d in group:
+                            if getattr(d, 'Entry', None) == 0:
+                                preferred = d
+                                break
+                        # Otherwise pick the first non-balance action deal
+                        if preferred is None:
+                            for d in group:
+                                action = getattr(d, 'Action', None)
+                                # Action == 2 usually indicates balance operations (deposit/withdrawal)
+                                if action is None or action not in [2]:
+                                    preferred = d
+                                    break
+                        # If we still don't have an entry record, try querying a wider timeframe
+                        # to locate the entry deal by Position/PositionID or Order.
+                        if preferred is not None and getattr(preferred, 'Entry', None) != 0:
+                            try:
+                                from datetime import timedelta
+                                lookup_key = getattr(preferred, 'PositionID', None) or getattr(preferred, 'Position', None) or getattr(preferred, 'Order', None) or getattr(preferred, 'OrderID', None)
+                                if lookup_key and 'mt5_service' in locals():
+                                    # Expand search window by 30 days each side to try to find missing entry records
+                                    try:
+                                        wider_start = start_date - timedelta(days=30)
+                                        wider_end = end_date + timedelta(days=30)
+                                        extra_deals = mt5_service.get_closed_trades(account_id, wider_start, wider_end)
+                                        if extra_deals:
+                                            for ed in extra_deals:
+                                                if (getattr(ed, 'PositionID', None) == lookup_key or getattr(ed, 'Position', None) == lookup_key or getattr(ed, 'Order', None) == lookup_key or getattr(ed, 'OrderID', None) == lookup_key) and getattr(ed, 'Entry', None) == 0:
+                                                    preferred = ed
+                                                    break
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                        # If still None fall back to first in group
+                        if preferred is None:
+                            preferred = group[0]
+
+                        deal = preferred
+                        # Map deal action/type to Buy/Sell where possible
                         deal_type = getattr(deal, 'Type', None) or getattr(deal, 'Action', None)
-                        if deal_type is not None and deal_type in [0, 1]:  # 0=Buy, 1=Sell
-                            symbol = getattr(deal, 'Symbol', 'N/A')
-                            volume = getattr(deal, 'Volume', 0)
-                            profit = getattr(deal, 'Profit', 0)
-                            deal_time = getattr(deal, 'Time', 0)
-                            # Convert volume to standard lots (MT5 usually stores in micro lots)
-                            lots = volume / 10000 if volume > 0 else volume
-                            trade_type_str = 'Buy' if deal_type == 0 else 'Sell' if deal_type == 1 else 'Other'
-                            trades.append({
-                                'open_time': self._format_mt5_time(deal_time),
-                                'close_time': self._format_mt5_time(deal_time),  # For deals, open/close might be same
-                                'symbol': symbol,
-                                'type': trade_type_str,
-                                'volume': float(lots) if lots else 0.0,
-                                'profit': float(profit) if profit else 0.0,
-                                'status': 'Closed'
-                            })
+                        if deal_type is None:
+                            # If unknown, still include the deal as a generic trade
+                            trade_type_str = 'Unknown'
+                        else:
+                            trade_type_str = 'Buy' if deal_type == 0 else 'Sell' if deal_type == 1 else f'Action_{deal_type}'
+
+                        symbol = getattr(deal, 'Symbol', 'N/A')
+                        volume = getattr(deal, 'Volume', 0)
+                        profit = getattr(deal, 'Profit', 0)
+                        deal_time = getattr(deal, 'Time', 0)
+                        lots = volume / 10000 if volume > 0 else volume
+                        trades.append({
+                            'open_time': self._format_mt5_time(deal_time),
+                            'close_time': self._format_mt5_time(getattr(deal, 'TimeClose', deal_time)),
+                            'symbol': symbol,
+                            'type': trade_type_str,
+                            'volume': float(lots) if lots else 0.0,
+                            'profit': float(profit) if profit else 0.0,
+                            'status': 'Closed'
+                        })
                     except Exception as deal_error:
-                        logger.warning(f"Error processing deal for account {account_id}: {str(deal_error)}")
+                        logger.warning(f"Error processing deal group {key} for account {account_id}: {str(deal_error)}")
                         continue
 
             # Add open positions (always, if available)

@@ -1,230 +1,329 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Account Statement</title>
-  <style>
-    body {
-      font-family: 'Segoe UI', sans-serif;
-      background: #f4f4f4;
-      margin: 0;
-      padding: 0;
-      color: #000;
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Account Statement</title>
 
-    .statement {
-      max-width: 920px;
-      margin: 30px auto;
-      padding: 20px;
-      background: #fff;
-      box-shadow: 0 0 8px rgba(0,0,0,0.1);
-      border: 1px solid #ccc;
-    }
+<style>
 
-    .header {
-      display: flex;
-      justify-content: space-between;
-      background: #0591c9;
-      color: white;
-      padding: 15px;
-      border-radius: 5px 5px 0 0;
-    }
+@page {
+  size: A4;
+  margin: 18mm 15mm;
+}
 
-    .title {
-      font-weight: bold;
-      font-size: 18px;
-    }
+body {
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #ffffff;
+  margin: 0;
+  color: #1C1C1C;
+}
 
-    .account-no {
-      font-size: 14px;
-    }
+.statement {
+  max-width: 900px;
+  margin: auto;
+}
 
-    .bank-logo {
-      font-weight: bold;
-      font-size: 20px;
-      font-style: italic;
-    }
+/* ================= HEADER ================= */
 
-    .customer-info {
-      margin: 20px 0;
-    }
+.header {
+  border-bottom: 3px solid #0F1B2A;
+  padding-bottom: 18px;
+  margin-bottom: 30px;
+}
 
-    .dates p {
-      margin: 4px 0;
-    }
+.header-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #0F1B2A;
+  text-transform: uppercase;
+}
 
-    .section-box h3 {
-      background: #cfe5f1;
-      padding: 10px;
-      margin-top: 30px;
-      border-left: 5px solid #05568b;
-    }
+.header-sub {
+  font-size: 13px;
+  color: #6B7280;
+  margin-top: 4px;
+}
 
-    .table-container {
-      overflow-x: auto;
-    }
+/* ================= CLIENT INFO ================= */
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 10px 0 20px;
-    }
+.client-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  margin-bottom: 30px;
+  font-size: 13px;
+}
 
-    th, td {
-      padding: 10px;
-      border: 1px solid #ddd;
-      font-size: 14px;
-      text-align: left;
-    }
+.client-block h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #6B7280;
+  margin-bottom: 6px;
+  letter-spacing: .5px;
+}
 
-    .customer-info, .info-box {
-      background: #f4f4f4;
-      border: 1px solid #ccc;
-      padding: 15px 20px;
-      border-radius: 8px;
-      margin-top: 25px;
-      font-size: 14px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
+.client-block p {
+  margin: 2px 0;
+  font-weight: 500;
+}
 
-    .info-box h4 {
-      margin: 0 0 10px 0;
-      font-size: 16px;
-      color: #333;
-      border-bottom: 1px solid #ddd;
-      padding-bottom: 5px;
-    }
-    .info-content{
-        font-size: 11px;
-    }
+/* ================= SECTION HEADINGS ================= */
 
-    .info-box.warning {
-      background: #f5faff;
-      border-color: #b3c3f0;
-      text-align: center;
-    }
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: #0F1B2A;
+  margin: 35px 0 12px;
+  border-bottom: 1px solid #D9DEE5;
+  padding-bottom: 6px;
+}
 
-    .info-box a {
-      color: #0056cc;
-      font-weight: bold;
-      text-decoration: none;
-    }
+/* ================= TABLE ================= */
 
-    .info-box a:hover {
-      text-decoration: underline;
-    }
-    .subtitle{
-        text-align: center;
-        font-size: 16px;
-        font-weight: bold;
-        color: #3b01dd;
-        margin: 5px 0 20px;
-    }
-    .contact{
-        font-size: 12px;
-        color: #0a1dccd0;
-        margin-top: 10px;
-    }
-  </style>
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+thead {
+  background: #F5F7FA;
+}
+
+th {
+  text-align: center;
+  padding: 10px 8px;
+  font-weight: 600;
+  border-bottom: 1px solid #D9DEE5;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: .4px;
+}
+
+td {
+  padding: 9px 8px;
+  border-bottom: 1px solid #E5E7EB;
+  vertical-align: middle;
+}
+
+.numeric {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.center {
+  text-align: center;
+}
+
+/* Positive / Negative P&L */
+
+.positive {
+  color: #0A7A3E;
+  font-weight: 600;
+}
+
+.negative {
+  color: #B42318;
+  font-weight: 600;
+}
+
+/* ================= FOOTER ================= */
+
+.footer {
+  margin-top: 40px;
+  font-size: 11px;
+  color: #6B7280;
+  border-top: 1px solid #D9DEE5;
+  padding-top: 12px;
+  line-height: 1.5;
+}
+
+/* ================= PRINT CONTROL ================= */
+
+@media print {
+  body {
+    margin: 0;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+}
+
+</style>
 </head>
 <body>
-  <div class="statement">
-    <header class="header">
-      <div>
-        <div class="title">{{ company_name }} Trading Statement</div>
-        <div class="account-no">{{ account_id }}</div>
-      </div>
-      <!-- <div class="bank-logo">IndusInd Bank</div> -->
-      {% if logo_path %}<img src="{{ logo_path }}" class="logo" alt="Company Logo">{% endif %}
-    </header>
-    
-    <section class="customer-info">
-        <div class="subtitle">{{ report_month }}</div>
-      <h2>{{ client_name }}</h2>
-        <p><strong>Account ID:</strong> {{ account_id }}</p>
-        <p><strong>Address :</strong> {{ address }}</p>
-        <p><strong>Phone:</strong> {{ phone }}</p>
-      <div class="dates">
-        <p><strong>Date:</strong> {{ report_date }}</p>
-      </div>
-    </section>
 
-    <section class="section-box">
-      <h3>Account Summary for Trading ID - {{ account_id }}</h3>
-      <div class="table-container">
+<div class="statement">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-title">VTIndex Account Statement</div>
+    <div class="header-sub">{{ report_month }}</div>
+  </div>
+
+  <!-- CLIENT INFO -->
+  <div class="client-grid">
+
+    <div class="client-block">
+      <h4>Client Information</h4>
+      <p><strong>{{ client_name }}</strong></p>
+      <p>{{ address }}</p>
+      <p>{{ phone }}</p>
+    </div>
+
+    <div class="client-block">
+      <h4>Account Details</h4>
+      <p>Account ID: {{ account_id }}</p>
+      <p>Account Type: {{ account_type }}</p>
+      <p>Statement Date: {{ report_date }}</p>
+    </div>
+
+  </div>
+
+  <!-- ACCOUNT SUMMARY -->
+  <div class="section-title">Account Summary</div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Starting Balance</th>
+        <th>Ending Balance</th>
+        <th>Total P/L</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="numeric">${{ starting_balance|floatformat:2 }}</td>
+        <td class="numeric">${{ ending_balance|floatformat:2 }}</td>
+        <td class="numeric {% if total_pnl >= 0 %}positive{% else %}negative{% endif %}">
+          ${{ total_pnl|floatformat:2 }}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ACCOUNT TRANSACTIONS (Summary: grouped per-account; Per-account: account-specific) -->
+  {% if is_summary %}
+  <div class="section-title">Account Transactions</div>
+  {% if transactions_by_account and transactions_by_account.items %}
+    {% for acc_id, rows in transactions_by_account.items %}
+      <h4 style="margin-top:12px; margin-bottom:6px;">Account: {{ acc_id }}</h4>
+      {% if rows|length == 0 %}
+        <p>No transactions for this account.</p>
+      {% else %}
         <table>
           <thead>
-            <tr><th>Account No.</th><th>Account Type</th><th>Starting Balance</th><th>Ending Balance</th><th>Total P/L</th></tr>
+            <tr>
+              <th>Date</th>
+              <th class="numeric">Credit</th>
+              <th class="numeric">Debit</th>
+              <th class="numeric">Available</th>
+              <th>Description</th>
+            </tr>
           </thead>
           <tbody>
-            <tr><td>{{ account_id }}</td><td>{{ account_type }}</td><td>${{ starting_balance }}</td><td>${{ ending_balance }}</td><td>${{ total_pnl }}</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h3>Trade History</h3>
-      <div class="table-container">
-        <table id="txn-table">
-          <thead>
+            {% for t in rows %}
             <tr>
-                <th>Open Time</th>
-                <th>Close Time</th>
-                <th>Symbol</th>
-                <th>Type</th>
-                <th>Volume</th>
-                <th>P/L</th>
-                <th>Status</th>
-            </tr>
-          </thead>
-        <tbody>
-        {% if trades|length == 0 %}
-            <tr>
-                <td colspan="7" style="color:#b75a1c; font-weight:bold; background:#f3f8ff; text-align:center;">No trades found for this period.</td>
-            </tr>
-        {% else %}
-            {% for trade in trades %}
-            <tr>
-                <td>{{ trade.open_time }}</td>
-                <td>{{ trade.close_time }}</td>
-                <td>{{ trade.symbol }}</td>
-                <td>{{ trade.type }}</td>
-                <td>{{ trade.volume }}</td>
-                <td>{{ trade.profit }}</td>
-                <td>
-                  {% if trade.close_time == "Open" or not trade.close_time %}
-                    Open
-                  {% else %}
-                    Closed
-                  {% endif %}
-                </td>
+              <td>{{ t.date }}</td>
+              <td class="numeric">{{ t.credit }}</td>
+              <td class="numeric">{{ t.debit }}</td>
+              <td class="numeric">{{ t.available }}</td>
+              <td>{{ t.description }}</td>
             </tr>
             {% endfor %}
-        {% endif %}
-        </tbody>
+          </tbody>
         </table>
-      </div>
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    <p>No transactions found for any account.</p>
+  {% endif %}
+  {% else %}
+    {% if transactions and transactions|length > 0 %}
+      <div class="section-title">Account Transactions</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th class="numeric">Credit</th>
+            <th class="numeric">Debit</th>
+            <th class="numeric">Available</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in transactions %}
+          <tr>
+            <td>{{ t.date }}</td>
+            <td class="numeric">{{ t.credit }}</td>
+            <td class="numeric">{{ t.debit }}</td>
+            <td class="numeric">{{ t.available }}</td>
+            <td>{{ t.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  {% endif %}
 
-      <div class="info-box warning">
-        <div class="info-content">
-            <h4>Important Notices</h4>
-            <p>This statement is confidential and intended only for the named recipient.
-          Trading involves substantial risk and is not suitable for all investors.
-        Past performance is not a guarantee of future results.
-          Please cross-verify this report with your MT5 platform records.
-          For any discrepancies or queries, reach out to our support team.</p>
-        </div>
-        <div class="contact">
-        <b>Contact Information:</b><br>
-        Email: 
-        <a href="mailto:support@vtindex.com">support@vtindex.com</a> | 
-        Website: 
-        <a href="https://www.vtindex.com" target="_blank">www.vtindex.com</a>
-        </div>
+  {% if trades|length > 0 %}
+  <!-- TRADE HISTORY -->
+  <div class="section-title">Trade History</div>
 
-      </div>
-    </section>
+  <table>
+    <thead>
+      <tr>
+        <th>Open Time</th>
+        <th>Close Time</th>
+        <th>Symbol</th>
+        <th>Type</th>
+        <th class="numeric">Volume</th>
+        <th class="numeric">P/L</th>
+        <th class="center">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for trade in trades %}
+      <tr>
+        <td>{{ trade.open_time }}</td>
+        <td>{{ trade.close_time }}</td>
+        <td>{{ trade.symbol }}</td>
+        <td>{{ trade.type }}</td>
+        <td class="numeric">{{ trade.volume }}</td>
+        <td class="numeric {% if trade.profit >= 0 %}positive{% else %}negative{% endif %}">
+          ${{ trade.profit|floatformat:2 }}
+        </td>
+        <td class="center">
+          {% if trade.close_time == "Open" or not trade.close_time %}
+            Open
+          {% else %}
+            Closed
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- FOOTER -->
+  <div class="footer">
+    This statement is confidential and intended solely for the named recipient.
+    Trading involves substantial risk and may not be suitable for all investors.
+    Past performance does not guarantee future results.
+    For discrepancies, please contact support@vtindex.com.
   </div>
+
+</div>
 
 </body>
 </html>
