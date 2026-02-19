@@ -26,11 +26,9 @@ class Command(BaseCommand):
 
         for acc in accounts:
             self.stdout.write(f'Processing account {acc.account_id} (id={acc.id}) for {report_date}')
-            # Execute the Celery task synchronously for testing using apply()
-            result = process_account_for_daily_report.apply(args=(acc.id, report_date))
-            # `apply` returns an AsyncResult-like object; extract result value if available
+            # Call the processing function directly (synchronous)
             try:
-                res = result.get(timeout=30)
-            except Exception:
-                res = getattr(result, 'result', None)
+                res = process_account_for_daily_report(acc.id, report_date)
+            except Exception as exc:
+                res = {'status': 'failed', 'error': str(exc)}
             self.stdout.write(f'Result: {res}')

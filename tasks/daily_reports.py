@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, date, time
 from django.utils import timezone
-from celery import shared_task
+import logging
 from django.db import transaction
 from adminPanel.models import TradingAccount, DailyTradingReport
 from django.db.models import Exists, OuterRef, Q
@@ -9,9 +9,10 @@ import tempfile
 import os
 from django.conf import settings
 
-@shared_task(bind=True)
-def daily_trading_report_runner(self, report_date_str=None, dry_run=False):
-    """Scheduler entry: find eligible accounts and enqueue per-account tasks."""
+def daily_trading_report_runner(report_date_str=None, dry_run=False):
+    """Scheduler entry: find eligible accounts and run per-account processing.
+    This replaces the previous Celery-based implementation and runs in-process.
+    """
     if report_date_str:
         report_date = date.fromisoformat(report_date_str)
     else:
@@ -26,37 +27,80 @@ def daily_trading_report_runner(self, report_date_str=None, dry_run=False):
     except Exception:
         pass
 
-    # Simple eligibility: account has open positions OR intraday trades
-    # Placeholder models `Position` and `Trade` may need to be replaced with repo-specific models
-    from adminPanel.models import Position, Trade  # may raise ImportError if not present
+    # Simple eligibility: account has open positions OR intraday trades.
+    # The project does not define `Position`/`Trade` models in `adminPanel.models`.
+    # Fall back to querying MT5 (via MT5ManagerActions) and the MonthlyReportGenerator
+    # to determine per-account activity. This is less efficient but reliable.
+    from adminPanel.mt5.services import MT5ManagerActions
+    mt5_manager = MT5ManagerActions()
+    generator = MonthlyReportGenerator()
 
-    open_pos_qs = Position.objects.filter(trading_account=OuterRef('pk'), is_open=True)
-    intraday_qs = Trade.objects.filter(trading_account=OuterRef('pk')).filter(
-        Q(open_time__gte=start, open_time__lt=end) | Q(close_time__gte=start, close_time__lt=end)
-    )
-
-    eligible_qs = TradingAccount.objects.annotate(
-        has_open=Exists(open_pos_qs),
-        has_trade=Exists(intraday_qs)
-    ).filter(Q(has_open=True) | Q(has_trade=True)).values_list('id', flat=True)
-
-    # Dispatch per-account tasks in batches
+    logger = logging.getLogger('daily_reports')
     batch_size = 200
-    ids = list(eligible_qs)
+    qs = TradingAccount.objects.select_related('user').all()
+    ids = []
+    for acc in qs:
+        try:
+            # check open positions via MT5 manager
+            open_positions = []
+            if hasattr(mt5_manager, 'get_open_positions'):
+                try:
+                    open_positions = mt5_manager.get_open_positions(int(acc.account_id)) or []
+                except Exception:
+                    open_positions = []
+
+            has_open = bool(open_positions)
+
+            # check intraday trades via the generator's MT5 query for this user
+            trading_data = generator.get_trading_data_from_mt5(acc.user, start, end)
+            trades_for_acc = [t for t in trading_data.get('trades', []) if str(t.get('account_id')) == str(acc.account_id)]
+            has_trade = len(trades_for_acc) > 0
+
+            if has_open or has_trade:
+                ids.append(acc.id)
+        except Exception:
+            # on error, skip this account (don't fail the whole run)
+            logger.exception('Error checking account %s eligibility', getattr(acc, 'id', 'unknown'))
+            continue
+    # Dispatch per-account tasks in batches and collect simple results
+    results = []
     for i in range(0, len(ids), batch_size):
         batch = ids[i:i+batch_size]
         for account_id in batch:
             if dry_run:
-                # simply create record
                 DailyTradingReport.objects.get_or_create(trading_account_id=account_id, report_date=report_date)
+                results.append({'account_id': account_id, 'action': 'dry_created'})
             else:
-                process_account_for_daily_report.delay(account_id, report_date.isoformat())
+                # Run synchronously in-process (no Celery)
+                try:
+                    res = process_account_for_daily_report(account_id, report_date.isoformat())
+                    results.append({'account_id': account_id, 'result': res})
+                except Exception as exc:
+                    logger.exception('Failed processing account %s', account_id)
+                    results.append({'account_id': account_id, 'error': str(exc)})
+
+    logger.info('Daily trading report runner completed for %s; eligible=%d, processed=%d', report_date, len(ids), len(results))
+    # Return a concise summary useful in management shells
+    summary = {
+        'report_date': str(report_date),
+        'checked_accounts': qs.count(),
+        'eligible_accounts': len(ids),
+        'processed_count': len(results),
+        'sample_results': results[:10]
+    }
+    # Also print to stdout for management shell immediate feedback
+    try:
+        print(summary)
+    except Exception:
+        pass
+    return summary
 
 
-@shared_task(bind=True, max_retries=3)
-def process_account_for_daily_report(self, account_id, report_date_str):
-    """Generate and send per-account daily report. Implements idempotency via DailyTradingReport."""
+def process_account_for_daily_report(account_id, report_date_str):
+    """Generate and send per-account daily report. Implements idempotency via DailyTradingReport.
+    Runs synchronously (no Celery)."""
     report_date = date.fromisoformat(report_date_str)
+    report = None
     # Acquire or create DailyTradingReport row
     with transaction.atomic():
         report, created = DailyTradingReport.objects.select_for_update().get_or_create(
@@ -215,8 +259,14 @@ def process_account_for_daily_report(self, account_id, report_date_str):
 
         return {'status': report.status}
     except Exception as exc:
-        report.attempts += 1
-        report.status = 'failed'
-        report.last_error = str(exc)
-        report.save()
-        raise self.retry(exc=exc)
+        # Mark failure on the report row (if available) and return
+        try:
+            if report:
+                report.attempts += 1
+                report.status = 'failed'
+                report.last_error = str(exc)
+                report.save()
+        except Exception:
+            pass
+        # Propagate exception to the caller
+        raise
