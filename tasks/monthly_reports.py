@@ -829,8 +829,11 @@ class MonthlyReportGenerator:
             
             # Create message
             msg = MIMEMultipart()
-            # Use report-specific from-address if set, otherwise default
-            msg['From'] = mail_from
+            # From header must match the authenticated SMTP user to avoid spam filters.
+            # Use the auth user address as the envelope sender, with a friendly display name.
+            display_name = getattr(settings, 'REPORTS_EMAIL_DISPLAY_NAME', 'VTIndex Reports')
+            auth_from = f"{display_name} <{mail_user}>" if mail_user else mail_from
+            msg['From'] = auth_from
             msg['To'] = to_email
             msg['Subject'] = subject
             
@@ -849,10 +852,12 @@ class MonthlyReportGenerator:
                         lower = attachment_path.lower()
                         if lower.endswith('.pdf'):
                             subtype = 'pdf'
-                            filename = f"Monthly_Trading_Report_{context['report_month'].replace(' ', '_')}.pdf"
+                            label = context.get('report_date_label', context.get('report_month', 'Report')).replace(' ', '_').replace('-', '_')
+                            filename = f"Trading_Report_{label}.pdf"
                         elif lower.endswith('.zip'):
                             subtype = 'zip'
-                            filename = f"Monthly_Trading_Report_{context['report_month'].replace(' ', '_')}.zip"
+                            label = context.get('report_date_label', context.get('report_month', 'Report')).replace(' ', '_').replace('-', '_')
+                            filename = f"Trading_Report_{label}.zip"
                         else:
                             subtype = 'octet-stream'
                             filename = os.path.basename(attachment_path)

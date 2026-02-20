@@ -13,5 +13,5 @@ class Command(BaseCommand):
         dry = options.get('dry_run', False)
         if dry:
             self.stdout.write('Running in dry-run mode (no tasks enqueued)')
-        daily_trading_report_runner.delay(date, dry)
-        self.stdout.write(self.style.SUCCESS('Daily trading report runner enqueued'))
+        daily_trading_report_runner(date, dry)
+        self.stdout.write(self.style.SUCCESS('Daily trading report runner completed'))

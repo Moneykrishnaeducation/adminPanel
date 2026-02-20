@@ -3,7 +3,6 @@ from django.utils import timezone
 import logging
 from django.db import transaction
 from adminPanel.models import TradingAccount, DailyTradingReport
-from django.db.models import Exists, OuterRef, Q
 from adminPanel.tasks.monthly_reports import MonthlyReportGenerator
 import tempfile
 import os
@@ -12,57 +11,29 @@ from django.conf import settings
 def daily_trading_report_runner(report_date_str=None, dry_run=False):
     """Scheduler entry: find eligible accounts and run per-account processing.
     This replaces the previous Celery-based implementation and runs in-process.
+
+    NOTE: We do NOT pre-filter eligibility via MT5 here. Doing 1700+ MT5 calls
+    per account at 02:00 fails silently and results in zero reports created.
+    process_account_for_daily_report() already skips accounts with no activity,
+    so all active accounts are passed through and it handles skipping internally.
     """
+    logger = logging.getLogger('daily_reports')
+
     if report_date_str:
         report_date = date.fromisoformat(report_date_str)
     else:
         report_date = (timezone.now() - timedelta(days=1)).date()
 
-    # Compute day range in UTC (assumes UTC evaluation)
-    start = datetime.combine(report_date, time.min)
-    end = start + timedelta(days=1)
-    try:
-        start = timezone.make_aware(start, timezone.get_current_timezone())
-        end = timezone.make_aware(end, timezone.get_current_timezone())
-    except Exception:
-        pass
+    logger.info('daily_trading_report_runner STARTED for report_date=%s dry_run=%s', report_date, dry_run)
 
-    # Simple eligibility: account has open positions OR intraday trades.
-    # The project does not define `Position`/`Trade` models in `adminPanel.models`.
-    # Fall back to querying MT5 (via MT5ManagerActions) and the MonthlyReportGenerator
-    # to determine per-account activity. This is less efficient but reliable.
-    from adminPanel.mt5.services import MT5ManagerActions
-    mt5_manager = MT5ManagerActions()
-    generator = MonthlyReportGenerator()
+    # Process ALL active trading accounts. Each per-account function checks MT5
+    # individually and marks the report 'skipped' if there is no activity.
+    qs = TradingAccount.objects.select_related('user').filter(user__isnull=False)
+    ids = list(qs.values_list('id', flat=True))
 
-    logger = logging.getLogger('daily_reports')
-    batch_size = 200
-    qs = TradingAccount.objects.select_related('user').all()
-    ids = []
-    for acc in qs:
-        try:
-            # check open positions via MT5 manager
-            open_positions = []
-            if hasattr(mt5_manager, 'get_open_positions'):
-                try:
-                    open_positions = mt5_manager.get_open_positions(int(acc.account_id)) or []
-                except Exception:
-                    open_positions = []
+    logger.info('daily_trading_report_runner: found %d accounts to process', len(ids))
 
-            has_open = bool(open_positions)
-
-            # check intraday trades via the generator's MT5 query for this user
-            trading_data = generator.get_trading_data_from_mt5(acc.user, start, end)
-            trades_for_acc = [t for t in trading_data.get('trades', []) if str(t.get('account_id')) == str(acc.account_id)]
-            has_trade = len(trades_for_acc) > 0
-
-            if has_open or has_trade:
-                ids.append(acc.id)
-        except Exception:
-            # on error, skip this account (don't fail the whole run)
-            logger.exception('Error checking account %s eligibility', getattr(acc, 'id', 'unknown'))
-            continue
-    # Dispatch per-account tasks in batches and collect simple results
+    batch_size = 50  # smaller batches to avoid overloading MT5 connections
     results = []
     for i in range(0, len(ids), batch_size):
         batch = ids[i:i+batch_size]
@@ -111,46 +82,67 @@ def process_account_for_daily_report(account_id, report_date_str):
         if report.status == 'sent':
             return {'status': 'skipped', 'reason': 'already sent'}
 
-    # TODO: generate per-account PDF and send email
-    # Use existing MonthlyReportGenerator or a dedicated per-account generator
+    # Generate per-account PDF and send email
+    logger = logging.getLogger('daily_reports')
     try:
-        # Placeholder: mark as sent for now
-        # Generate per-account PDF for the day and send
         acc = TradingAccount.objects.select_related('user').get(id=account_id)
         user = acc.user
 
-        # Build day range
-        start = datetime.combine(report_date, time.min)
-        end = start + timedelta(days=1)
+        # Build day range as NAIVE datetimes — MT5 DealRequest does not accept
+        # timezone-aware objects on Windows and silently returns empty results if given one.
+        start = datetime.combine(report_date, time.min)   # 00:00:00 naive UTC
+        end = start + timedelta(days=1)                    # 00:00:00 next day naive UTC
+
+        # Fetch closed trades directly for THIS account only (not via monthly-report
+        # generator which loops ALL user accounts and may silently return empty).
+        from adminPanel.mt5.services import MT5ManagerActions
+        mt5_manager = MT5ManagerActions()
+
+        raw_deals = []
         try:
-            start = timezone.make_aware(start, timezone.get_current_timezone())
-            end = timezone.make_aware(end, timezone.get_current_timezone())
-        except Exception:
-            pass
+            raw_deals = mt5_manager.get_closed_trades(int(acc.account_id), start, end) or []
+        except Exception as e:
+            logger.warning('get_closed_trades failed for account %s: %s', acc.account_id, e)
 
-        generator = MonthlyReportGenerator()
+        # Convert raw MT5 deal objects to trade dicts
+        trades = []
+        for deal in raw_deals:
+            try:
+                time_val = getattr(deal, 'Time', 0)
+                open_time = datetime.fromtimestamp(time_val).strftime('%Y-%m-%d %H:%M:%S') if isinstance(time_val, (int, float)) and time_val > 0 else str(time_val)
+                time_close_val = getattr(deal, 'TimeClose', time_val)
+                close_time = datetime.fromtimestamp(time_close_val).strftime('%Y-%m-%d %H:%M:%S') if isinstance(time_close_val, (int, float)) and time_close_val > 0 else open_time
+                action = getattr(deal, 'Action', None)
+                trades.append({
+                    'open_time': open_time,
+                    'close_time': close_time,
+                    'symbol': getattr(deal, 'Symbol', 'N/A'),
+                    'type': 'Buy' if action == 0 else 'Sell' if action == 1 else 'Unknown',
+                    'volume': round(getattr(deal, 'Volume', 0) / 10000, 2),
+                    'profit': float(getattr(deal, 'Profit', 0)),
+                    'commission': float(getattr(deal, 'Commission', 0)),
+                    'swap': float(getattr(deal, 'Storage', 0)),
+                    'status': 'Closed',
+                    'account_id': str(acc.account_id),
+                })
+            except Exception as e:
+                logger.warning('Error converting deal for account %s: %s', acc.account_id, e)
 
-        # Get trading data for the user for the day and filter to this account
-        trading_data = generator.get_trading_data_from_mt5(user, start, end)
-        trades = [t for t in trading_data.get('trades', []) if str(t.get('account_id')) == str(acc.account_id)]
-
-        # Skip sending if there is no activity: no intraday trades and no open positions
+        # Fetch open positions for this account
         open_positions = []
         try:
-            from adminPanel.mt5.services import MT5ManagerActions
-            mt5_manager = MT5ManagerActions()
-            if hasattr(mt5_manager, 'get_open_positions'):
-                open_positions = mt5_manager.get_open_positions(int(acc.account_id)) or []
-        except Exception:
-            # If MT5 manager isn't available or errors, treat as no open positions
-            open_positions = []
+            open_positions = mt5_manager.get_open_positions(int(acc.account_id)) or []
+        except Exception as e:
+            logger.warning('get_open_positions failed for account %s: %s', acc.account_id, e)
+
+        logger.info('Account %s: closed_trades=%d open_positions=%d for %s', acc.account_id, len(trades), len(open_positions), report_date)
 
         if (not trades) and (not open_positions):
-            # Mark report as skipped due to no activity and return
+            # No activity — mark skipped and return (do not send email)
             with transaction.atomic():
                 report.attempts += 1
                 report.status = 'skipped'
-                report.last_error = 'no open positions and no intraday trades'
+                report.last_error = 'no closed trades and no open positions'
                 report.save()
             return {'status': 'skipped', 'reason': 'no_activity'}
 
@@ -217,6 +209,7 @@ def process_account_for_daily_report(account_id, report_date_str):
         acc_html = template.render(Context(acc_context))
 
         # Convert to PDF bytes
+        generator = MonthlyReportGenerator()
         pdf_bytes = generator._convert_html_to_pdf(acc_html, user, report_date.year, report_date.month)
 
         # Save to temp file
@@ -227,10 +220,11 @@ def process_account_for_daily_report(account_id, report_date_str):
             f.write(pdf_bytes)
 
         # Prepare email
-        email_subject = f"📊 Daily Trading Report - {report_month} - Account {acc.account_id}"
+        email_subject = f"Daily Trading Report - {report_date.strftime('%d %B %Y')} - Account {acc.account_id}"
         email_context = {
             'user_name': user.get_full_name(),
-            'report_month': report_month,
+            'report_month': f"{report_date.strftime('%d %B %Y')}",
+            'report_date_label': f"Daily Report - {report_date.strftime('%d %B %Y')}",
             'company_name': 'VTIndex',
             'total_trades': len(trades),
             'total_volume': acc_context['total_volume'],
