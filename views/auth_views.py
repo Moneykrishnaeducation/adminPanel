@@ -739,6 +739,49 @@ def create_server_settings_view(request):
         }, status=500)
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@csrf_exempt
+def create_demo_server_settings_view(request):
+    """Create default MT5 demo server settings"""
+    try:
+        from adminPanel.models import ServerSetting
+
+        # If demo settings already exist, return first
+        demo = ServerSetting.objects.filter(server_type=False).first()
+        if demo:
+            return Response({
+                'message': 'Demo ServerSetting already exists',
+                'setting': {
+                    'id': demo.id,
+                    'server_ip': demo.server_ip,
+                    'server_name': demo.server_name_client,
+                    'login_id': demo.real_account_login
+                }
+            }, status=200)
+
+        demo = ServerSetting.objects.create(
+            server_ip="127.0.0.1",
+            server_name_client="MT5 Demo Server",
+            real_account_login=1000,
+            real_account_password="password123",
+            server_type=False,
+        )
+
+        return Response({
+            'message': 'Demo ServerSetting created successfully',
+            'setting': {
+                'id': demo.id,
+                'server_ip': demo.server_ip,
+                'server_name': demo.server_name_client,
+                'login_id': demo.real_account_login
+            }
+        }, status=201)
+
+    except Exception as e:
+        return Response({'error': 'Failed to create demo server settings', 'details': str(e)}, status=500)
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def api_status_view(request):

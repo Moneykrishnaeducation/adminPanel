@@ -671,8 +671,13 @@ class AvailableGroupsView(APIView):
                         "group_type": "MT5",
                     }
 
-                    # Skip demo groups only when the requester explicitly asked for real groups
-                    if base.get('is_demo') and request.query_params.get('type', '').lower() == 'real':
+                    # Skip demo groups when the requester explicitly asked for real groups
+                    # Accept both ?type=real and ?server_type=true
+                    real_requested = (
+                        request.query_params.get('type', '').lower() == 'real'
+                        or request.query_params.get('server_type', '').lower() in ('true', '1', 'yes')
+                    )
+                    if base.get('is_demo') and real_requested:
                         logger.debug(f"Skipping demo group for type=real: {group_name}")
                         continue
 
@@ -724,8 +729,12 @@ class AvailableGroupsView(APIView):
                             "description": f"{'Demo' if 'demo' in group_name.lower() else 'Live'} trading group",
                         }
 
-                        # Skip demo groups only when the requester explicitly asked for real groups
-                        if base.get('is_demo') and request.query_params.get('type', '').lower() == 'real':
+                        # Skip demo groups when the requester explicitly asked for real groups
+                        real_requested = (
+                            request.query_params.get('type', '').lower() == 'real'
+                            or request.query_params.get('server_type', '').lower() in ('true', '1', 'yes')
+                        )
+                        if base.get('is_demo') and real_requested:
                             logger.debug(f"Skipping demo group for type=real: {group_name}")
                             continue
 

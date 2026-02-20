@@ -82,7 +82,7 @@ from .views.admin_manager_views import (
     list_mam_managers
 )
 from clientPanel.views import auth_views as client_auth_views
-from .views.auth_views import login_view, logout_view, validate_token_view, token_refresh_view, create_server_settings_view, api_status_view, refresh_and_set_cookie_view, public_key_view
+from .views.auth_views import login_view, logout_view, validate_token_view, token_refresh_view, create_server_settings_view, create_demo_server_settings_view, api_status_view, refresh_and_set_cookie_view, public_key_view
 from .views.debug_auth_view import AuthDebugView, auth_debug_public
 from .views.dashboard_page_views import manager_dashboard_page, admin_dashboard_page
 from .views.transaction_views import (
@@ -123,7 +123,7 @@ from .views.ib_commission_balance import get_ib_commission_balance
 # Import the new view for trading account history and positions
 from .views.trading_account_history import trading_account_history_view, trading_account_positions_view 
 from .views.trading_page_view import trading_accounts_page
-from .views.views5 import ServerSettingsAPIView, CommissionCreationView
+from .views.views5 import ServerSettingsAPIView, CommissionCreationView, DemoServerSettingsAPIView, DemoAvailableGroupsView, SaveDemoGroupConfigurationView
 from .views.mt5_refresh_view import RefreshMT5ConnectionAPIView
 from .views.views6 import dashboard_stats_view, dashboard_stats_view_public, recent_transactions_view_public
 from .views.email_views import (
@@ -414,8 +414,11 @@ urlpatterns = [
     # Server settings API
     path('api/server-settings/', ServerSettingsAPIView.as_view(), name='api-server-settings'),
     path('api/server-settings', ServerSettingsAPIView.as_view(), name='api-server-settings-no-slash'),
+    path('api/demo-server-settings/', DemoServerSettingsAPIView.as_view(), name='api-demo-server-settings'),
+    path('api/demo-server-settings', DemoServerSettingsAPIView.as_view(), name='api-demo-server-settings-no-slash'),
     path('api/refresh-mt5-connection/', RefreshMT5ConnectionAPIView.as_view(), name='api-refresh-mt5-connection'),
     path('api/create-server-settings/', create_server_settings_view, name='api-create-server-settings'),
+    path('api/create-demo-server-settings/', create_demo_server_settings_view, name='api-create-demo-server-settings'),
     path('api/status/', api_status_view, name='api-status'),
     
     # Trading accounts API - Enhanced for full connectivity
@@ -423,6 +426,8 @@ urlpatterns = [
     path('api/trading-accounts/', trading_accounts_list, name='api-trading-accounts'),
     path('api/admin/trading-accounts/', trading_accounts_list, name='api-admin-trading-accounts'),
     path('api/available-groups/', AvailableGroupsView.as_view(), name='api-available-groups'),
+    path('api/demo-available-groups/', DemoAvailableGroupsView.as_view(), name='api-demo-available-groups'),
+    path('api/save-demo-group-configuration/', SaveDemoGroupConfigurationView.as_view(), name='api-save-demo-group-configuration'),
     path('api/test-groups/', TestAvailableGroupsView.as_view(), name='api-test-groups'),
     path('api/debug-groups-status/', debug_groups_status, name='api-debug-groups-status'),
     path('api/current-group-config/', current_group_config, name='api-current-group-config-function'),

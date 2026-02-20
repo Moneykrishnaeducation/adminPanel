@@ -1545,6 +1545,16 @@ def change_leverage_update(request):
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 
+def _get_demo_mt5_actions():
+    """Return MT5ManagerActions pointed at the DEMO server (login 1095)."""
+    from adminPanel.mt5.services import MT5ManagerActions as _MT5
+    from adminPanel.mt5.manager import get_demo_manager_instance
+    actions = _MT5()
+    demo_mgr = get_demo_manager_instance()
+    if demo_mgr and hasattr(demo_mgr, 'manager') and demo_mgr.manager:
+        actions.manager = demo_mgr.manager
+    return actions
+
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAdminOrManager])
@@ -1561,7 +1571,7 @@ def disable_demo_account(request, account_id):
         
         # Disable account in MT5 server first
         try:
-            mt5_manager = MT5ManagerActions()
+            mt5_manager = _get_demo_mt5_actions()
             if not mt5_manager.disable_account(account_id):
                 logger.error(f"[Disable DemoAccount] Failed to disable account in MT5 server for account_id={account_id}")
                 return JsonResponse({'error': 'Failed to disable account in MT5 server'}, status=500)
@@ -1618,7 +1628,7 @@ def reset_leverage_demo_account(request, account_id):
             
             # Update MT5 server first
             try:
-                mt5_manager = MT5ManagerActions()
+                mt5_manager = _get_demo_mt5_actions()
                 success = mt5_manager.change_leverage(account_id, int_leverage)
                 if not success:
                     logger.error(f"[Leverage Reset] MT5 update failed for account_id={account_id}")
@@ -1694,7 +1704,7 @@ def reset_balance_demo_account(request, account_id):
             
             # Update MT5 server first
             try:
-                mt5_manager = MT5ManagerActions()
+                mt5_manager = _get_demo_mt5_actions()
                 
                 # Get current balance from MT5
                 current_mt5_balance = mt5_manager.get_balance(account_id)
@@ -1774,7 +1784,7 @@ def enable_demo_account(request, account_id):
         
         # Enable account in MT5 server first
         try:
-            mt5_manager = MT5ManagerActions()
+            mt5_manager = _get_demo_mt5_actions()
             if not mt5_manager.enable_account(account_id):
                 logger.error(f"[Enable DemoAccount] Failed to enable account in MT5 server for account_id={account_id}")
                 return Response({"error": "Failed to enable account in MT5 server"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

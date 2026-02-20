@@ -724,7 +724,24 @@ class ServerSettingsAPIView(APIView):
 
     def get(self, request):
         try:
-            server_setting = ServerSetting.objects.latest('created_at')
+            # Allow caller to request a specific server_type via query param
+            # Accepts: 'true'/'false', '1'/'0', case-insensitive
+            server_type_param = request.GET.get('server_type')
+            if server_type_param is not None:
+                st = str(server_type_param).lower()
+                server_type_bool = st in ('1', 'true', 'yes', 'y')
+                server_setting = ServerSetting.objects.filter(server_type=server_type_bool).order_by('-created_at').first()
+            else:
+                server_setting = ServerSetting.objects.latest('created_at')
+
+            if not server_setting:
+                return Response({
+                    "server_ip": "",
+                    "login_id": "",
+                    "server_password": "",
+                    "server_name": ""
+                }, status=status.HTTP_200_OK)
+
             return Response({
                 "server_ip": server_setting.get_decrypted_server_ip(),
                 "login_id": server_setting.real_account_login,
@@ -756,20 +773,34 @@ class ServerSettingsAPIView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            server_setting, created = ServerSetting.objects.get_or_create(
-                defaults={
-                    'server_ip': data['server_ip'],
-                    'real_account_login': data['login_id'],
-                    'real_account_password': data['server_password'],
-                    'server_name_client': data['server_name']
-                }
-            )
-
-            if not created:
+            # Avoid get_or_create() without lookup kwargs which raises
+            # MultipleObjectsReturned when more than one row exists. Instead
+            # pick the most recent settings row or create one if missing.
+            # If caller provided server_type in body, use it to select which record to upsert
+            server_type_in_body = data.get('server_type')
+            if server_type_in_body is not None:
+                st = str(server_type_in_body).lower()
+                server_type_bool = st in ('1', 'true', 'yes', 'y')
+                server_setting = ServerSetting.objects.filter(server_type=server_type_bool).order_by('-created_at').first()
+            else:
+                server_setting = ServerSetting.objects.order_by('-created_at').first()
+            created = False
+            if server_setting is None:
+                server_setting = ServerSetting.objects.create(
+                    server_ip=data['server_ip'],
+                    real_account_login=data['login_id'],
+                    real_account_password=data['server_password'],
+                    server_name_client=data['server_name'],
+                    server_type= server_type_bool if server_type_in_body is not None else True,
+                )
+                created = True
+            else:
                 server_setting.server_ip = data['server_ip']
                 server_setting.real_account_login = data['login_id']
                 server_setting.real_account_password = data['server_password']
                 server_setting.server_name_client = data['server_name']
+                if server_type_in_body is not None:
+                    server_setting.server_type = server_type_bool
                 server_setting.save()
 
             # Force refresh MT5 Manager connection with new credentials
@@ -823,20 +854,33 @@ class ServerSettingsAPIView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            server_setting, created = ServerSetting.objects.get_or_create(
-                defaults={
-                    'server_ip': data['server_ip'],
-                    'real_account_login': data['login_id'],
-                    'real_account_password': data['server_password'],
-                    'server_name_client': data['server_name']
-                }
-            )
-
-            if not created:
+            # Avoid get_or_create() without lookup kwargs which raises
+            # MultipleObjectsReturned when more than one row exists. Instead
+            # pick the most recent settings row or create one if missing.
+            server_type_in_body = data.get('server_type')
+            if server_type_in_body is not None:
+                st = str(server_type_in_body).lower()
+                server_type_bool = st in ('1', 'true', 'yes', 'y')
+                server_setting = ServerSetting.objects.filter(server_type=server_type_bool).order_by('-created_at').first()
+            else:
+                server_setting = ServerSetting.objects.order_by('-created_at').first()
+            created = False
+            if server_setting is None:
+                server_setting = ServerSetting.objects.create(
+                    server_ip=data['server_ip'],
+                    real_account_login=data['login_id'],
+                    real_account_password=data['server_password'],
+                    server_name_client=data['server_name']
+                    , server_type= server_type_bool if server_type_in_body is not None else True
+                )
+                created = True
+            else:
                 server_setting.server_ip = data['server_ip']
                 server_setting.real_account_login = data['login_id']
                 server_setting.real_account_password = data['server_password']
                 server_setting.server_name_client = data['server_name']
+                if server_type_in_body is not None:
+                    server_setting.server_type = server_type_bool
                 server_setting.save()
 
             # Automated full MT5 database and cache reset after updating credentials
@@ -884,4 +928,279 @@ class ServerSettingsAPIView(APIView):
             return Response(
                 {"error": f"Failed to update server settings: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class DemoServerSettingsAPIView(APIView):
+    """
+    API View to handle MT5 demo server settings configuration
+    Same behaviour as ServerSettingsAPIView but stores/reads demo records (server_type=False)
+    """
+    permission_classes = [AllowAny]
+    http_method_names = ['get', 'put', 'post', 'head', 'options']
+
+    def get(self, request):
+        try:
+            server_setting = ServerSetting.objects.filter(server_type=False).order_by('-created_at').first()
+            if not server_setting:
+                return Response({
+                    "server_ip": "",
+                    "login_id": "",
+                    "server_password": "",
+                    "server_name": ""
+                }, status=status.HTTP_200_OK)
+            return Response({
+                "server_ip": server_setting.get_decrypted_server_ip(),
+                "login_id": server_setting.real_account_login,
+                "server_password": server_setting.get_decrypted_real_account_password(),
+                "server_name": server_setting.server_name_client
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": f"Failed to retrieve demo server settings: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _upsert_demo(self, data, request):
+        required_fields = ['server_ip', 'login_id', 'server_password', 'server_name']
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        if missing_fields:
+            return Response({"error": f"Missing required fields: {', '.join(missing_fields)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        server_setting = ServerSetting.objects.filter(server_type=False).order_by('-created_at').first()
+        created = False
+        if server_setting is None:
+            server_setting = ServerSetting.objects.create(
+                server_ip=data['server_ip'],
+                real_account_login=data['login_id'],
+                real_account_password=data['server_password'],
+                server_name_client=data['server_name'],
+                server_type=False,
+            )
+            created = True
+        else:
+            server_setting.server_ip = data['server_ip']
+            server_setting.real_account_login = data['login_id']
+            server_setting.real_account_password = data['server_password']
+            server_setting.server_name_client = data['server_name']
+            server_setting.server_type = False
+            server_setting.save()
+
+        # Try to reset manager instance for demo connection if applicable
+        try:
+            from adminPanel.mt5.manager import reset_demo_manager_instance
+            reset_demo_manager_instance()
+        except Exception:
+            pass
+        try:
+            from adminPanel.mt5.services import reset_manager_instance
+            reset_manager_instance()
+        except Exception:
+            pass
+
+        if request.user and request.user.is_authenticated:
+            ActivityLog.objects.create(
+                user=request.user,
+                activity=f"{'Created' if created else 'Updated'} MT5 demo server settings",
+                ip_address=get_client_ip(request),
+                endpoint=request.path,
+                activity_type="update" if not created else "create",
+                activity_category="management",
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                timestamp=timezone.now(),
+                related_object_id=server_setting.id,
+                related_object_type="ServerSetting"
+            )
+
+        return Response({
+            "message": "Demo server settings updated successfully",
+            "server_ip": server_setting.get_decrypted_server_ip(),
+            "login_id": server_setting.real_account_login,
+            "server_name": server_setting.server_name_client
+        }, status=status.HTTP_200_OK)
+
+    def put(self, request, *args, **kwargs):
+        try:
+            return self._upsert_demo(request.data, request)
+        except Exception as e:
+            return Response({"error": f"Failed to update demo server settings: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def post(self, request, *args, **kwargs):
+        try:
+            return self._upsert_demo(request.data, request)
+        except Exception as e:
+            return Response({"error": f"Failed to create demo server settings: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class DemoAvailableGroupsView(APIView):
+    """
+    Fetch available trading groups from the DEMO MT5 server (ServerSetting where server_type=False).
+    Returns groups in the same format as AvailableGroupsView so the frontend can use them identically.
+    """
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request):
+        try:
+            from adminPanel.mt5.manager import get_demo_manager_instance
+
+            # Connect to demo MT5 server
+            demo_instance = get_demo_manager_instance()
+            demo_manager = demo_instance.manager
+
+            # Fetch groups directly via the MT5Manager API
+            group_names = []
+            for i in range(demo_manager.GroupTotal()):
+                grp = demo_manager.GroupNext(i)
+                if grp and grp.Group:
+                    group_names.append(grp.Group)
+
+            # Load database alias/active info for the groups
+            try:
+                db_groups = TradeGroup.objects.all()
+                db_settings = {}
+                for db_group in db_groups:
+                    db_settings[db_group.name] = {
+                        'is_active': getattr(db_group, 'is_active', False),
+                        'alias': getattr(db_group, 'alias', '') or '',
+                        'is_default': getattr(db_group, 'is_default', False),
+                        'is_demo_default': getattr(db_group, 'is_demo_default', False),
+                    }
+            except Exception:
+                db_settings = {}
+
+            # Determine requester role
+            is_admin = getattr(request.user, 'is_superuser', False)
+            if not is_admin and hasattr(request.user, 'manager_admin_status'):
+                mgr_status = str(request.user.manager_admin_status).lower()
+                is_admin = 'admin' in mgr_status
+            is_manager = not is_admin and hasattr(request.user, 'manager_admin_status') and \
+                         'manager' in str(request.user.manager_admin_status).lower()
+
+            formatted_groups = []
+            for group_name in group_names:
+                db_info = db_settings.get(group_name, {})
+                alias = db_info.get('alias', '') or ''
+
+                base = {
+                    "id": group_name,
+                    "value": group_name,
+                    "label": group_name,
+                    "name": group_name,
+                    "is_demo": True,  # All groups from the demo server are demo groups
+                    "is_live": False,
+                    "is_default": db_info.get('is_default', False),
+                    "is_demo_default": db_info.get('is_demo_default', False),
+                    "enabled": db_info.get('is_active', False),
+                    "leverage_max": 1000,
+                    "leverage_min": 1,
+                    "currency": "USD",
+                    "deposit_min": 0,
+                    "description": "Demo trading group",
+                    "group_type": "MT5",
+                    "alias": alias,
+                    "original_name": group_name,
+                }
+
+                if is_manager:
+                    if not alias:
+                        continue  # Managers only see groups with an alias
+                    base["id"] = alias
+                    base["value"] = alias
+                    base["label"] = alias
+                    base["name"] = alias
+
+                formatted_groups.append(base)
+
+            return Response({
+                "groups": formatted_groups,
+                "available_groups": formatted_groups,
+                "source": "demo_mt5_server",
+                "success": True,
+                "total_groups": len(formatted_groups),
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error fetching groups from demo MT5 server: {str(e)}")
+            return Response({
+                "groups": [],
+                "available_groups": [],
+                "source": "demo_mt5_server",
+                "success": False,
+                "error": str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class SaveDemoGroupConfigurationView(APIView):
+    """
+    Save demo group configuration. Only touches is_demo_default / demo group flags —
+    never modifies is_default (real server default) so the real group page is unaffected.
+    
+    Expected payload:
+      {
+        "groups": [
+          { "id": "GroupName", "enabled": true, "alias": "...", "demo_default": true/false }
+        ]
+      }
+    Exactly one group should have demo_default=true.
+    """
+    permission_classes = [IsSuperuser]
+
+    def post(self, request):
+        try:
+            groups_config = request.data.get('groups', [])
+            if not groups_config:
+                return Response(
+                    {'success': False, 'message': 'Missing groups data'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            demo_defaults = [g for g in groups_config if g.get('demo_default', False)]
+            if len(demo_defaults) != 1:
+                return Response(
+                    {'success': False, 'message': 'Exactly one demo default group must be selected'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Only clear is_demo_default — leave is_default (real groups) untouched
+            TradeGroup.objects.all().update(is_demo_default=False)
+
+            updated = 0
+            for g in groups_config:
+                group_id = g.get('id')
+                if not group_id:
+                    continue
+
+                group = (
+                    TradeGroup.objects.filter(name=group_id).first()
+                    or TradeGroup.objects.filter(group_id=group_id).first()
+                )
+                if not group:
+                    group = TradeGroup.objects.create(
+                        name=group_id,
+                        group_id=group_id,
+                        description=f'Demo Trading Group: {group_id}',
+                        type='demo',
+                        is_active=False,
+                        is_default=False,
+                        is_demo_default=False,
+                    )
+
+                group.is_active = g.get('enabled', False)
+                group.alias = g.get('alias', '') or ''
+                group.is_demo_default = bool(g.get('demo_default', False))
+                if group.is_demo_default:
+                    group.type = 'demo'
+                group.save()
+                updated += 1
+
+            demo_group = TradeGroup.objects.filter(is_demo_default=True).first()
+            return Response({
+                'success': True,
+                'message': f'Demo group configuration saved. Updated {updated} groups.',
+                'demo_default_group': demo_group.name if demo_group else None,
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error saving demo group configuration: {str(e)}")
+            return Response(
+                {'success': False, 'message': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

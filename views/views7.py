@@ -99,14 +99,18 @@ def create_demo_account_view(request):
     if not account_name:
         account_name = f"{user.username} - Demo"
 
-    # Get demo group with fallback options
+    # Get demo group from TradeGroup (is_demo_default=True), with fallback to legacy TradingAccountGroup
     try:
-        groupName = TradingAccountGroup.objects.latest('created_at').demo_account_group
-        if not groupName:
-            # If demo_account_group is empty, use a fallback
-            groupName = "demo"
-    except TradingAccountGroup.DoesNotExist:
-        # If no TradingAccountGroup exists, use fallback demo group
+        from adminPanel.models import TradeGroup
+        demo_trade_group = TradeGroup.objects.filter(is_demo_default=True, is_active=True).first()
+        if demo_trade_group and demo_trade_group.name:
+            groupName = demo_trade_group.name
+            logger.info(f"Using configured demo default group: {groupName}")
+        else:
+            # Fallback to legacy TradingAccountGroup model
+            groupName = TradingAccountGroup.objects.latest('created_at').demo_account_group or "demo"
+            logger.warning(f"No TradeGroup demo default configured, using legacy fallback: {groupName}")
+    except Exception:
         groupName = "demo"
     
 
@@ -162,9 +166,16 @@ def create_demo_account_view(request):
             }, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        # Let MT5 service handle password generation for compatibility
+        # For demo accounts, connect via the DEMO server (login 1095), not the real server
+        from adminPanel.mt5.manager import get_demo_manager_instance
         mt5action = MT5ManagerActions()
-        
+        demo_mgr_instance = get_demo_manager_instance()
+        if demo_mgr_instance and hasattr(demo_mgr_instance, 'manager') and demo_mgr_instance.manager:
+            mt5action.manager = demo_mgr_instance.manager
+            logger.info("Demo account creation: using demo MT5 server connection")
+        else:
+            logger.warning("Demo MT5 server not available, falling back to real server connection")
+
         # Check if MT5 manager is connected and has permissions
         if not mt5action.manager:
             if mt5action.connection_error:

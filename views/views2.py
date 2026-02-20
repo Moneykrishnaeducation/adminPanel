@@ -173,6 +173,20 @@ def get_available_trading_groups(request):
         # Combine and deduplicate
         all_groups = list(set(available_groups + trade_groups_list))
         all_groups.sort()
+
+        # Allow filtering by server_type query param for frontend convenience
+        # server_type expected values: 'true'/'false'/'1'/'0'
+        server_type_param = request.GET.get('server_type')
+        if server_type_param is not None:
+            st = str(server_type_param).lower()
+            want_demo = st in ('0', 'false', 'no', 'n')
+            if want_demo:
+                # keep only groups that look like demo groups (heuristic: contain 'demo')
+                demo_filtered = [g for g in all_groups if g and 'demo' in g.lower()]
+                all_groups = demo_filtered
+            else:
+                # real groups: exclude names that contain 'demo'
+                all_groups = [g for g in all_groups if g and 'demo' not in g.lower()]
         
         # If no groups found, provide some default examples
         if not all_groups:

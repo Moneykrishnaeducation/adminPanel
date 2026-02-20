@@ -564,7 +564,7 @@ def save_group_configuration(request):
         
         groups_config = data['groups']
         
-        # Validate that we have exactly one default and one demo group
+        # Validate that we have exactly one default group
         default_groups = [g for g in groups_config if g.get('default', False)]
         demo_groups = [g for g in groups_config if g.get('demo', False)]
         
@@ -574,21 +574,12 @@ def save_group_configuration(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        if len(demo_groups) != 1:
-            return Response(
-                {'success': False, 'message': 'Exactly one demo group must be selected'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Demo default is optional — it is managed separately from the Demo Trading Group page.
+        # No longer require exactly one demo group here.
         
-        if default_groups[0]['id'] == demo_groups[0]['id']:
-            return Response(
-                {'success': False, 'message': 'Default and demo groups must be different'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # First reset all default flags AND deactivate all groups
-        TradeGroup.objects.all().update(is_default=False, is_demo_default=False, is_active=False)
-        logger.info("🔄 Reset all groups: is_default=False, is_demo_default=False, is_active=False")
+        # First reset real groups only — do NOT touch demo groups (managed from Demo Trading Group page)
+        TradeGroup.objects.exclude(type='demo').update(is_default=False, is_active=False)
+        logger.info("🔄 Reset non-demo groups: is_default=False, is_active=False (demo groups left intact)")
         
         # Process each group configuration
         updated_count = 0
@@ -657,12 +648,10 @@ def save_group_configuration(request):
                 group.type = 'demo'  # Demo default groups are always demo
                 logger.info(f"✅ Set {group_id} as DEMO DEFAULT: type={group.type}, is_demo_default={group.is_demo_default}")
             else:
-                # For enabled but non-default groups, set them as real by default
-                # Admins can later create demo accounts using the demo default group
+                # For enabled but non-default groups on the real page, always mark as real
                 group.is_default = False
                 group.is_demo_default = False
-                if not group.type or group.type not in ['real', 'demo']:
-                    group.type = 'real'  # Default to real for enabled groups
+                group.type = 'real'  # Real page always processes real server groups
                 logger.info(f"✅ Set {group_id} as REGULAR REAL: type={group.type}, enabled={group.is_active}")
             
             group.save()

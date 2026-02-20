@@ -26,6 +26,7 @@ class ServerSetting(models.Model):
     real_account_login = models.CharField(max_length=100, verbose_name='Real Account Login ID')
     real_account_password = models.CharField(max_length=512, verbose_name='Real Account Password')
     server_name_client = models.CharField(max_length=100, verbose_name='Server Name for Live Accounts')
+    server_type = models.BooleanField(default=True, verbose_name='Is Real Server (unchecked for demo)')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

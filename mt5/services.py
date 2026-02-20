@@ -324,7 +324,14 @@ def _get_manager_instance_sync():
 
     with _manager_lock:  
         try:
-            latest_setting = ServerSetting.objects.latest('created_at')
+            # Always use the REAL server setting (server_type=True) to avoid
+            # accidentally connecting to the demo server when demo settings are newer.
+            real_qs = ServerSetting.objects.filter(server_type=True).order_by('-created_at')
+            latest_setting = real_qs.first()
+            if not latest_setting:
+                # Fallback: if no setting is explicitly marked real, use the oldest one
+                # (oldest = more likely to be the original real server entry)
+                latest_setting = ServerSetting.objects.order_by('created_at').first()
             if not latest_setting:
                 raise Exception("No server settings found")
 
@@ -339,7 +346,7 @@ def _get_manager_instance_sync():
                         timeout=120000,
                     )
                     # Connection successful if no exception was raised
-                    # logger.info("Connected to MT5 Manager API with latest server settings.")
+                    logger.info(f"Connected to real MT5 server (login={latest_setting.real_account_login})")
                     _current_server_setting = latest_setting
                 except Exception as e:
                     error_message = f"Failed to connect to MT5 Manager: {str(e)}"
