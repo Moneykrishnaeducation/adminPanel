@@ -1019,66 +1019,111 @@ class WithdrawView(APIView):
                     related_object_type="Transaction"
                 )
                 
-                # Apply PAM manager withdrawal bookkeeping:
-                # Re-scale every investor's inv.amount so their current_amount is preserved,
-                # and update the pool ledger — same formula as views9.py.
+                # PAM withdrawal bookkeeping — mutually exclusive:
+                #   investment_id present → INVESTOR withdrawal
+                #   investment_id absent  → MANAGER withdrawal
                 manager_debited = False
                 manager_capital_value = None
+                investor_debited = False
                 try:
                     from clientPanel.models import PAMAccount, PAMInvestment
                     from django.db import transaction as db_transaction
-                    pam = PAMAccount.objects.filter(mt5_login=str(account_id)).first()
-                    if pam:
+
+                    investment_id = request.data.get('investment_id') or request.POST.get('investment_id')
+
+                    if investment_id:
+                        # ── INVESTOR WITHDRAWAL ───────────────────────────────────────
+                        # Formula (MT5 already fired; recover pre-withdrawal old_pool):
+                        #   k = W / pre_current_amount    (fraction of stake redeemed)
+                        #   amount_delta = old_amount × k
+                        #   cost_basis  -= W              (actual cash returned)
+                        #   pool_ledger -= W              (pool shrinks by exact amount)
                         try:
                             with db_transaction.atomic():
+                                investment = PAMInvestment.objects.select_for_update().get(pk=int(investment_id))
+                                pam_inv = investment.pam_account
                                 W = Decimal(str(amount))
-                                # MT5 has already fired, so pool_balance may be post-withdrawal.
-                                # Recover old_pool before the withdrawal was applied.
-                                if pam._pool_balance_ledger is not None:
-                                    old_pool = Decimal(str(pam._pool_balance_ledger))
+
+                                if pam_inv._pool_balance_ledger is not None:
+                                    old_pool_inv = Decimal(str(pam_inv._pool_balance_ledger))
                                 else:
-                                    # pool_balance reads post-withdrawal MT5 balance; add W back.
-                                    old_pool = Decimal(str(pam.pool_balance)) + W
+                                    # pool_balance reads post-withdrawal MT5; restore W
+                                    old_pool_inv = Decimal(str(pam_inv.pool_balance)) + W
 
-                                old_initial = Decimal(str(pam.initial_pool))  # capital not yet changed
-                                old_mc = Decimal(str(pam.manager_capital or 0))
-                                new_mc = max(old_mc - W, Decimal('0'))
-
-                                if old_initial > 0:
-                                    old_mgr_value = old_pool * old_mc / old_initial
+                                old_initial_inv = Decimal(str(pam_inv.initial_pool))
+                                if old_initial_inv > 0:
+                                    pre_current_val = old_pool_inv * Decimal(str(investment.amount)) / old_initial_inv
                                 else:
-                                    old_mgr_value = old_pool
-                                new_mgr_value = old_mgr_value - W
+                                    pre_current_val = Decimal('0')
 
-                                # Re-scale investor amounts to preserve their current_amount
-                                if new_mgr_value > 0 and old_initial > 0:
-                                    all_investments = list(
-                                        PAMInvestment.objects.select_for_update().filter(pam_account=pam)
-                                    )
-                                    for inv in all_investments:
-                                        C_i = old_pool * Decimal(str(inv.amount)) / old_initial
-                                        inv.amount = (C_i * new_mc / new_mgr_value).quantize(Decimal('0.00000'))
-                                    if all_investments:
-                                        PAMInvestment.objects.bulk_update(all_investments, ['amount'])
+                                if pre_current_val > 0:
+                                    k = min(W / pre_current_val, Decimal('1'))
+                                    amount_delta = (Decimal(str(investment.amount)) * k).quantize(Decimal('0.00000'))
+                                    investment.amount = max(Decimal(str(investment.amount)) - amount_delta, Decimal('0'))
+                                    investment.cost_basis = max(Decimal(str(investment.cost_basis)) - W, Decimal('0'))
+                                else:
+                                    investment.amount = Decimal('0')
+                                investment.save()
 
-                                pam.manager_capital = new_mc
-                                # Update pool ledger to reflect the withdrawal
-                                pam._pool_balance_ledger = max(old_pool - W, Decimal('0'))
-                                pam.save()
-                                manager_debited = True
+                                pam_inv._pool_balance_ledger = max(old_pool_inv - W, Decimal('0'))
+                                pam_inv.save(update_fields=['_pool_balance_ledger'])
+                                investor_debited = True
                                 logger.info(
-                                    f"[PAM ADMIN WITHDRAWAL] PAMM {pam.id}: manager_capital "
-                                    f"{old_mc} \u2192 {new_mc}, investor amounts re-scaled."
+                                    f"[PAM ADMIN INV WITHDRAWAL] inv {investment.id}: "
+                                    f"amount_delta={amount_delta}, pool_ledger←{pam_inv._pool_balance_ledger}"
                                 )
-                        except Exception as pam_exc:
-                            logger.error(f"[PAM ADMIN WITHDRAWAL] Bookkeeping failed: {pam_exc}", exc_info=True)
-                            manager_debited = False
-                        manager_capital_value = float(pam.manager_capital)
-                except Exception:
-                    manager_debited = False
-                    manager_capital_value = None
+                        except PAMInvestment.DoesNotExist:
+                            logger.error(f"[PAM ADMIN INV WITHDRAWAL] investment {investment_id} not found")
+                        except Exception as inv_exc:
+                            logger.error(f"[PAM ADMIN INV WITHDRAWAL] Bookkeeping failed: {inv_exc}", exc_info=True)
 
-                # Send notification email
+                    else:
+                        # ── MANAGER WITHDRAWAL ────────────────────────────────────────
+                        # Re-scale every investor's inv.amount so their current_amount is
+                        # preserved, then shrink manager_capital and pool ledger.
+                        pam = PAMAccount.objects.filter(mt5_login=str(account_id)).first()
+                        if pam:
+                            try:
+                                with db_transaction.atomic():
+                                    W = Decimal(str(amount))
+                                    if pam._pool_balance_ledger is not None:
+                                        old_pool = Decimal(str(pam._pool_balance_ledger))
+                                    else:
+                                        old_pool = Decimal(str(pam.pool_balance)) + W
+
+                                    old_initial = Decimal(str(pam.initial_pool))
+                                    old_mc = Decimal(str(pam.manager_capital or 0))
+                                    new_mc = max(old_mc - W, Decimal('0'))
+
+                                    if old_initial > 0:
+                                        old_mgr_value = old_pool * old_mc / old_initial
+                                    else:
+                                        old_mgr_value = old_pool
+                                    new_mgr_value = old_mgr_value - W
+
+                                    if new_mgr_value > 0 and old_initial > 0:
+                                        all_investments = list(
+                                            PAMInvestment.objects.select_for_update().filter(pam_account=pam)
+                                        )
+                                        for inv in all_investments:
+                                            C_i = old_pool * Decimal(str(inv.amount)) / old_initial
+                                            inv.amount = (C_i * new_mc / new_mgr_value).quantize(Decimal('0.00000'))
+                                        if all_investments:
+                                            PAMInvestment.objects.bulk_update(all_investments, ['amount'])
+
+                                    pam.manager_capital = new_mc
+                                    pam._pool_balance_ledger = max(old_pool - W, Decimal('0'))
+                                    pam.save()
+                                    manager_debited = True
+                                    manager_capital_value = float(pam.manager_capital)
+                                    logger.info(
+                                        f"[PAM ADMIN WITHDRAWAL] PAMM {pam.id}: manager_capital "
+                                        f"{old_mc} → {new_mc}, investors re-scaled."
+                                    )
+                            except Exception as pam_exc:
+                                logger.error(f"[PAM ADMIN WITHDRAWAL] Bookkeeping failed: {pam_exc}", exc_info=True)
+                except Exception as outer_exc:
+                    logger.error(f"[PAM ADMIN WITHDRAWAL] outer error: {outer_exc}", exc_info=True)
                 try:
                     send_withdrawal_email(trading_account.user, transaction)
                     logger.info("Withdrawal notification email sent successfully")
