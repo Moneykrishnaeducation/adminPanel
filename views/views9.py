@@ -1538,24 +1538,99 @@ class ApproveTransactionView(APIView):
                             is_manager_deposit = (transaction.user == pamm.manager)
                             
                             if is_manager_deposit:
-                                # MANAGER DEPOSIT: Increase manager capital and pool
-                                pamm.manager_capital = Decimal(str(pamm.manager_capital or 0)) + Decimal(str(transaction.amount))
+                                # MANAGER DEPOSIT — preserve every investor's current_amount.
+                                # -------------------------------------------------------
+                                # When manager adds $M:
+                                #   pool grows by M (new cash enters)
+                                #   manager_capital grows by M
+                                #   every investor's VALUE must stay constant
+                                #
+                                # WRONG approach: new_amount = old_amount × (old_pool × (old_initial+M))
+                                #                                              / (old_initial × new_pool)
+                                # → fails because total_investments changes when amounts are scaled,
+                                #   so actual new_initial_pool ≠ old_initial_pool + M.
+                                #
+                                # CORRECT approach: derive from preserved investor value C_i.
+                                #   C_i = old_pool × inv.amount / old_initial_pool
+                                #   old_manager_value = old_pool × manager_capital / old_initial_pool
+                                #   new_manager_value = old_manager_value + M
+                                #   new_amount_i = C_i × new_manager_capital / new_manager_value
+                                # 
+                                # Proof: new_pool × new_amount_i / new_initial_pool
+                                #   where new_initial_pool = new_manager_capital
+                                #                           + sum(new_amount_j)
+                                #                         = new_manager_capital × new_pool
+                                #                           / new_manager_value
+                                #   → simplifies to C_i ✔
+                                # -------------------------------------------------------
+                                M = Decimal(str(transaction.amount))
+                                old_pool = Decimal(str(pamm.pool_balance))       # pre-deposit
+                                old_initial_pool = Decimal(str(pamm.initial_pool))  # manager_capital not yet updated
+                                old_manager_capital = Decimal(str(pamm.manager_capital or 0))
+                                new_manager_capital = old_manager_capital + M
+
+                                if old_initial_pool > 0:
+                                    old_manager_value = old_pool * old_manager_capital / old_initial_pool
+                                else:
+                                    old_manager_value = old_pool
+                                new_manager_value = old_manager_value + M  # = new_pool - total_investor_value
+
+                                if new_manager_value > 0:
+                                    all_investments = list(PAMInvestment.objects.filter(pam_account=pamm))
+                                    for inv in all_investments:
+                                        # C_i: investor's current pool value (preserved after deposit)
+                                        C_i = old_pool * Decimal(str(inv.amount)) / old_initial_pool if old_initial_pool > 0 else Decimal('0')
+                                        inv.amount = (C_i * new_manager_capital / new_manager_value).quantize(Decimal('0.01'))
+                                        # cost_basis unchanged — investor's actual cash didn't move
+                                    if all_investments:
+                                        PAMInvestment.objects.bulk_update(all_investments, ['amount'])
+
+                                pamm.manager_capital = new_manager_capital
                             else:
                                 # INVESTOR DEPOSIT: Create/update investment record
+                                deposit = Decimal(str(transaction.amount))
+
                                 investment = PAMInvestment.objects.filter(
                                     pam_account=pamm,
                                     investor=transaction.user
                                 ).first()
                                 
                                 if investment:
-                                    investment.amount = Decimal(str(investment.amount)) + Decimal(str(transaction.amount))
+                                    # --------------------------------------------------
+                                    # ADDITIONAL DEPOSIT — preserve pre-existing P/L.
+                                    #
+                                    # Scale the ownership-delta by (initial_pool /
+                                    # pool_balance) so the investor's share of the
+                                    # post-deposit pool equals their pre-deposit value
+                                    # plus the exact deposit amount.
+                                    # Actual cash is tracked in cost_basis separately.
+                                    # --------------------------------------------------
+                                    pool_balance = Decimal(str(pamm.pool_balance))
+                                    initial_pool = Decimal(str(pamm.initial_pool))
+
+                                    if pool_balance > 0 and initial_pool > 0:
+                                        pool_ratio = (initial_pool / pool_balance).quantize(Decimal('0.000001'))
+                                        amount_delta = (deposit * pool_ratio).quantize(Decimal('0.01'))
+                                    else:
+                                        amount_delta = deposit
+
+                                    investment.amount = Decimal(str(investment.amount)) + amount_delta
+
+                                    # cost_basis = total actual cash deposited (P/L baseline).
+                                    # Back-fill legacy rows (cost_basis == 0) from their amount
+                                    # minus the new delta (i.e. the pre-update amount value).
+                                    current_basis = Decimal(str(investment.cost_basis))
+                                    if current_basis == 0:
+                                        current_basis = Decimal(str(investment.amount)) - amount_delta
+                                    investment.cost_basis = current_basis + deposit
                                     investment.save()
                                 else:
                                     # First-time deposit: create new investment
                                     PAMInvestment.objects.create(
                                         pam_account=pamm,
                                         investor=transaction.user,
-                                        amount=Decimal(str(transaction.amount)),
+                                        amount=deposit,
+                                        cost_basis=deposit,
                                         profit_share=pamm.profit_share
                                     )
                             
@@ -1598,7 +1673,40 @@ class ApproveTransactionView(APIView):
 
                                 # 3) If still remaining, reduce manager capital (last resort)
                                 if remaining > 0:
-                                    pamm.manager_capital -= remaining
+                                    W_cap = remaining
+                                    # --------------------------------------------------
+                                    # Scale investor amounts so current_amount is
+                                    # preserved when manager_capital (and initial_pool)
+                                    # shrinks by W_cap.
+                                    #
+                                    # Pool has ALREADY decreased (MT5 synced). Only
+                                    # initial_pool is about to change via manager_capital.
+                                    #
+                                    # Formula (same as manager deposit, W subtracted):
+                                    #   C_i = pool × old_amount / old_initial_pool
+                                    #   old_manager_value = pool × manager_capital / old_initial_pool
+                                    #   new_manager_value = old_manager_value - W_cap
+                                    #   new_amount = C_i × new_manager_capital / new_manager_value
+                                    # --------------------------------------------------
+                                    _cur_pool = Decimal(str(pamm.pool_balance))
+                                    _old_initial = Decimal(str(pamm.initial_pool))
+                                    _old_mc = Decimal(str(pamm.manager_capital or 0))
+                                    _new_mc = max(_old_mc - W_cap, Decimal('0'))
+                                    if _old_initial > 0:
+                                        _old_mv = _cur_pool * _old_mc / _old_initial
+                                    else:
+                                        _old_mv = _cur_pool
+                                    _new_mv = _old_mv - W_cap
+                                    if _new_mv > 0 and _old_initial > 0:
+                                        _invs = list(PAMInvestment.objects.filter(pam_account=pamm))
+                                        for _inv in _invs:
+                                            _Ci = _cur_pool * Decimal(str(_inv.amount)) / _old_initial
+                                            _inv.amount = (_Ci * _new_mc / _new_mv).quantize(Decimal('0.01'))
+                                        if _invs:
+                                            PAMInvestment.objects.bulk_update(_invs, ['amount'])
+                                    pamm.manager_capital = _new_mc
+                                else:
+                                    pamm.manager_capital = Decimal('0')
 
                                 pamm.save(update_fields=[
                                     'manager_capital',
@@ -1606,34 +1714,53 @@ class ApproveTransactionView(APIView):
                                     '_manager_profit_share_withdrawn'
                                 ])
                             else:
-                                # INVESTOR WITHDRAWAL: Calculate proportional pool reduction
-                                # DO NOT modify investment.amount - it's used for allocation percentage
-                                
+                                # INVESTOR WITHDRAWAL — preserve all other participants' P/L.
+                                #
+                                # When investor withdraws $W:
+                                #   1. Pool shrinks by exactly $W.
+                                #   2. Investor's ownership stake (amount) is scaled down so
+                                #      their current_amount drops by exactly $W.
+                                #   3. cost_basis is reduced by $W (actual cash returned).
+                                #
+                                # Correct formula:
+                                #   k = W / current_amount
+                                #   amount_delta = old_amount × k
+                                #   new_pool = pool_balance - W
+
                                 investment = PAMInvestment.objects.filter(
                                     pam_account=pamm,
                                     investor=transaction.user
                                 ).first()
-                                
-                                if investment and hasattr(pamm, 'pool_balance'):
-                                    # Calculate proportional pool reduction accounting for:
-                                    # - Investor's allocation percentage (their share of pool)
-                                    # - Manager's profit share (investor keeps a % of profits)
-                                    
-                                    allocation_pct = Decimal(str(investment.allocation_percentage)) / Decimal('100')
-                                    manager_profit_share_pct = Decimal(str(pamm.profit_share)) / Decimal('100')
-                                    investor_profit_retention = Decimal('1') - manager_profit_share_pct
-                                    
-                                    if allocation_pct > 0 and investor_profit_retention > 0:
-                                        # Formula: pool_reduction = withdrawal / (allocation% × profit_retention%)
-                                        pool_reduction = Decimal(str(transaction.amount)) / (allocation_pct * investor_profit_retention)
-                                        current_pool = pamm.pool_balance
-                                        pamm._pool_balance_ledger = max(current_pool - pool_reduction, Decimal('0'))
-                                        pamm.save()
+
+                                if investment:
+                                    withdrawal = Decimal(str(transaction.amount))
+                                    current_val = investment.current_amount  # property
+                                    current_pool = Decimal(str(pamm.pool_balance))
+
+                                    if current_val > 0:
+                                        k = min(withdrawal / current_val, Decimal('1'))  # fraction redeemed
+                                        amount_delta = (Decimal(str(investment.amount)) * k).quantize(Decimal('0.01'))
+                                        investment.amount = max(
+                                            Decimal(str(investment.amount)) - amount_delta,
+                                            Decimal('0')
+                                        )
+                                        # Update cost_basis — reduce by actual cash returned
+                                        new_basis = max(
+                                            Decimal(str(investment.cost_basis)) - withdrawal,
+                                            Decimal('0')
+                                        )
+                                        investment.cost_basis = new_basis
+                                        investment.save()
+
+                                    # Pool decreases by exactly the withdrawal amount
+                                    if pamm._pool_balance_ledger is not None:
+                                        pamm._pool_balance_ledger = max(
+                                            Decimal(str(pamm._pool_balance_ledger)) - withdrawal,
+                                            Decimal('0')
+                                        )
                                     else:
-                                        # Fallback for edge cases
-                                        current_pool = pamm.pool_balance
-                                        pamm._pool_balance_ledger = max(current_pool - Decimal(str(transaction.amount)), Decimal('0'))
-                                        pamm.save()
+                                        pamm._pool_balance_ledger = max(current_pool - withdrawal, Decimal('0'))
+                                    pamm.save()
                 except Exception as e:
                     # Log the error but don't fail the approval
                     import logging
