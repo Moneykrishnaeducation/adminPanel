@@ -550,7 +550,34 @@ def approve_transaction_api(request):
                     if transaction.source == 'PAMM_MANAGER':
                         # Manager deposit approved - increase manager_capital + MT5 deposit
                         if transaction.transaction_type == 'deposit_trading':
-                            pamm_account.manager_capital = Decimal(str(pamm_account.manager_capital)) + Decimal(str(transaction.amount))
+                            # -------------------------------------------------------
+                            # MANAGER DEPOSIT — preserve every investor's current_amount.
+                            # Simply incrementing manager_capital increases initial_pool,
+                            # shrinking each investor's allocation_percentage and reducing
+                            # their current_amount (distorting P/L).
+                            # Use the same C_i re-scaling formula as views9.py.
+                            # -------------------------------------------------------
+                            M = Decimal(str(transaction.amount))
+                            _old_pool = Decimal(str(pamm_account.pool_balance))
+                            _old_initial = Decimal(str(pamm_account.initial_pool))
+                            _old_mc = Decimal(str(pamm_account.manager_capital or 0))
+                            _new_mc = _old_mc + M
+                            _old_mgr_val = (_old_pool * _old_mc / _old_initial) if _old_initial > 0 else _old_pool
+                            _new_mgr_val = _old_mgr_val + M
+
+                            if _new_mgr_val > 0:
+                                _investments = list(PAMInvestment.objects.filter(pam_account=pamm_account))
+                                for _inv in _investments:
+                                    C_i = (_old_pool * Decimal(str(_inv.amount)) / _old_initial) if _old_initial > 0 else Decimal('0')
+                                    # Use 6 d.p. to avoid cascaded rounding errors in current_amount
+                                    _inv.amount = (C_i * _new_mc / _new_mgr_val).quantize(Decimal('0.000000'))
+                                if _investments:
+                                    PAMInvestment.objects.bulk_update(_investments, ['amount'])
+
+                            pamm_account.manager_capital = _new_mc
+                            # Update pool ledger so pool_balance reflects the deposit
+                            if pamm_account._pool_balance_ledger is not None:
+                                pamm_account._pool_balance_ledger = Decimal(str(pamm_account._pool_balance_ledger)) + M
                             pamm_account.save()
                             
                             # Perform MT5 deposit
@@ -608,8 +635,38 @@ def approve_transaction_api(request):
                         if investment:
                             # Investor deposit approved - increase investment amount + MT5 deposit
                             if transaction.transaction_type == 'deposit_trading':
-                                investment.amount = Decimal(str(investment.amount)) + Decimal(str(transaction.amount))
+                                # ------------------------------------------------------------------
+                                # INVESTOR ADDITIONAL DEPOSIT — preserve pre-existing P/L.
+                                #
+                                # MT5 deposit fires AFTER this block, so pool_balance is still
+                                # pre-deposit here (same ordering as views9.py).
+                                #
+                                # Apply pool-ratio formula so inv.amount is scaled correctly:
+                                #   amount_delta = deposit × (initial_pool / pool_balance)
+                                #   cost_basis  += deposit  (actual cash, P/L baseline)
+                                # ------------------------------------------------------------------
+                                _deposit = Decimal(str(transaction.amount))
+                                _pool_balance = Decimal(str(pamm_account.pool_balance))  # pre-MT5
+                                _initial_pool = Decimal(str(pamm_account.initial_pool))
+
+                                if _pool_balance > 0 and _initial_pool > 0:
+                                    _amount_delta = (_deposit * _initial_pool / _pool_balance).quantize(Decimal('0.000000'))
+                                else:
+                                    _amount_delta = _deposit
+
+                                _current_basis = Decimal(str(investment.cost_basis or 0))
+                                if _current_basis == 0:
+                                    _current_basis = Decimal(str(investment.amount))
+                                investment.amount = Decimal(str(investment.amount)) + _amount_delta
+                                investment.cost_basis = _current_basis + _deposit
                                 investment.save()
+
+                                # Update pool ledger
+                                if pamm_account._pool_balance_ledger is not None:
+                                    pamm_account._pool_balance_ledger = Decimal(str(pamm_account._pool_balance_ledger)) + _deposit
+                                else:
+                                    pamm_account._pool_balance_ledger = _pool_balance + _deposit
+                                pamm_account.save(update_fields=['_pool_balance_ledger'])
                                 
                                 # Perform MT5 deposit to the PAMM pool
                                 import logging

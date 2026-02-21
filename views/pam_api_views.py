@@ -172,7 +172,34 @@ def pam_update_manager_capital(request, mt5_login):
             return Response({"error": "invalid amount"}, status=status.HTTP_400_BAD_REQUEST)
 
         if operation == 'increment' or operation == 'add':
-            pam.manager_capital = Decimal(str(pam.manager_capital or 0)) + dec_amt
+            # -------------------------------------------------------
+            # MANAGER DEPOSIT — preserve every investor's current_amount.
+            # Simply incrementing manager_capital increases initial_pool,
+            # shrinking each investor's allocation_percentage and reducing
+            # their current_amount (distorting P/L).
+            # Use the same C_i re-scaling formula as views9.py.
+            # -------------------------------------------------------
+            M = dec_amt
+            old_pool = Decimal(str(pam.pool_balance))
+            old_initial = Decimal(str(pam.initial_pool))
+            old_mc = Decimal(str(pam.manager_capital or 0))
+            new_mc = old_mc + M
+            old_mgr_val = (old_pool * old_mc / old_initial) if old_initial > 0 else old_pool
+            new_mgr_val = old_mgr_val + M
+
+            if new_mgr_val > 0:
+                investments = list(PAMInvestment.objects.filter(pam_account=pam))
+                for inv in investments:
+                    C_i = (old_pool * Decimal(str(inv.amount)) / old_initial) if old_initial > 0 else Decimal('0')
+                    # Use 6 d.p. to avoid cascaded rounding errors in current_amount
+                    inv.amount = (C_i * new_mc / new_mgr_val).quantize(Decimal('0.000000'))
+                if investments:
+                    PAMInvestment.objects.bulk_update(investments, ['amount'])
+
+            pam.manager_capital = new_mc
+            # Update pool ledger so pool_balance reflects the deposit
+            if pam._pool_balance_ledger is not None:
+                pam._pool_balance_ledger = Decimal(str(pam._pool_balance_ledger)) + M
         else:
             pam.manager_capital = dec_amt
 

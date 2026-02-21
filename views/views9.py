@@ -1580,7 +1580,8 @@ class ApproveTransactionView(APIView):
                                     for inv in all_investments:
                                         # C_i: investor's current pool value (preserved after deposit)
                                         C_i = old_pool * Decimal(str(inv.amount)) / old_initial_pool if old_initial_pool > 0 else Decimal('0')
-                                        inv.amount = (C_i * new_manager_capital / new_manager_value).quantize(Decimal('0.01'))
+                                        # Use 6 d.p. to avoid cascaded rounding errors in current_amount
+                                        inv.amount = (C_i * new_manager_capital / new_manager_value).quantize(Decimal('0.00000'))
                                         # cost_basis unchanged — investor's actual cash didn't move
                                     if all_investments:
                                         PAMInvestment.objects.bulk_update(all_investments, ['amount'])
@@ -1609,7 +1610,7 @@ class ApproveTransactionView(APIView):
                                     initial_pool = Decimal(str(pamm.initial_pool))
 
                                     if pool_balance > 0 and initial_pool > 0:
-                                        pool_ratio = (initial_pool / pool_balance).quantize(Decimal('0.000001'))
+                                        pool_ratio = (initial_pool / pool_balance).quantize(Decimal('0.000000'))
                                         amount_delta = (deposit * pool_ratio).quantize(Decimal('0.01'))
                                     else:
                                         amount_delta = deposit
@@ -1701,7 +1702,8 @@ class ApproveTransactionView(APIView):
                                         _invs = list(PAMInvestment.objects.filter(pam_account=pamm))
                                         for _inv in _invs:
                                             _Ci = _cur_pool * Decimal(str(_inv.amount)) / _old_initial
-                                            _inv.amount = (_Ci * _new_mc / _new_mv).quantize(Decimal('0.01'))
+                                            # Use 6 d.p. to avoid cascaded rounding errors in current_amount
+                                            _inv.amount = (_Ci * _new_mc / _new_mv).quantize(Decimal('0.000000'))
                                         if _invs:
                                             PAMInvestment.objects.bulk_update(_invs, ['amount'])
                                     pamm.manager_capital = _new_mc
