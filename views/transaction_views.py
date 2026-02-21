@@ -534,9 +534,9 @@ def approve_transaction_api(request):
             return Response({"error": "You don't have permission to approve this transaction"}, 
                           status=status.HTTP_403_FORBIDDEN)
         
-        # Handle PAMM manager capital adjustments
+        # Handle PAMM manager capital adjustments and MT5 operations
         if transaction.source in ['PAMM_MANAGER', 'PAMM']:
-            from clientPanel.models import PAMAccount
+            from clientPanel.models import PAMAccount, PAMInvestment
             from decimal import Decimal
             
             # Find the PAMM account by mt5_login from trading_account
@@ -545,19 +545,139 @@ def approve_transaction_api(request):
                     mt5_login=transaction.trading_account.account_id
                 ).first()
                 
-                if pamm_account and transaction.source == 'PAMM_MANAGER':
-                    # Manager deposit approved - increase manager_capital
-                    if transaction.transaction_type == 'deposit_trading':
-                        pamm_account.manager_capital = Decimal(str(pamm_account.manager_capital)) + Decimal(str(transaction.amount))
-                        pamm_account.save()
+                if pamm_account:
+                    # Handle MANAGER deposits/withdrawals
+                    if transaction.source == 'PAMM_MANAGER':
+                        # Manager deposit approved - increase manager_capital + MT5 deposit
+                        if transaction.transaction_type == 'deposit_trading':
+                            pamm_account.manager_capital = Decimal(str(pamm_account.manager_capital)) + Decimal(str(transaction.amount))
+                            pamm_account.save()
+                            
+                            # Perform MT5 deposit
+                            try:
+                                from adminPanel.mt5.services import MT5ManagerActions
+                                mt5_manager = MT5ManagerActions()
+                                mt5_manager.deposit_funds(
+                                    login_id=int(transaction.trading_account.account_id),
+                                    amount=float(transaction.amount),
+                                    comment=f"Manager deposit to PAMM {pamm_account.name}"
+                                )
+                                # Update TradingAccount balance
+                                new_balance = mt5_manager.get_balance(int(transaction.trading_account.account_id))
+                                if new_balance is not None:
+                                    transaction.trading_account.balance = Decimal(str(new_balance))
+                                    transaction.trading_account.save()
+                            except Exception as e:
+                                import logging
+                                logging.getLogger(__name__).warning(f"MT5 deposit failed for manager PAMM deposit: {e}")
+                        
+                        # Manager withdrawal approved - decrease manager_capital + MT5 withdrawal
+                        elif transaction.transaction_type == 'withdraw_trading':
+                            current_capital = Decimal(str(pamm_account.manager_capital))
+                            withdrawal_amount = Decimal(str(transaction.amount))
+                            # Reduce capital (min 0)
+                            pamm_account.manager_capital = max(current_capital - withdrawal_amount, Decimal('0'))
+                            pamm_account.save()
+                            
+                            # Perform MT5 withdrawal
+                            try:
+                                from adminPanel.mt5.services import MT5ManagerActions
+                                mt5_manager = MT5ManagerActions()
+                                mt5_manager.withdraw_funds(
+                                    login_id=int(transaction.trading_account.account_id),
+                                    amount=float(transaction.amount),
+                                    comment=f"Manager withdrawal from PAMM {pamm_account.name}"
+                                )
+                                # Update TradingAccount balance
+                                new_balance = mt5_manager.get_balance(int(transaction.trading_account.account_id))
+                                if new_balance is not None:
+                                    transaction.trading_account.balance = Decimal(str(new_balance))
+                                    transaction.trading_account.save()
+                            except Exception as e:
+                                import logging
+                                logging.getLogger(__name__).warning(f"MT5 withdrawal failed for manager PAMM withdrawal: {e}")
                     
-                    # Manager withdrawal approved - decrease manager_capital
-                    elif transaction.transaction_type == 'withdraw_trading':
-                        current_capital = Decimal(str(pamm_account.manager_capital))
-                        withdrawal_amount = Decimal(str(transaction.amount))
-                        # Reduce capital (min 0)
-                        pamm_account.manager_capital = max(current_capital - withdrawal_amount, Decimal('0'))
-                        pamm_account.save()
+                    # Handle INVESTOR deposits/withdrawals
+                    elif transaction.source == 'PAMM':
+                        # Find the investor's PAMInvestment
+                        investment = PAMInvestment.objects.filter(
+                            pam_account=pamm_account,
+                            investor=transaction.user
+                        ).first()
+                        
+                        if investment:
+                            # Investor deposit approved - increase investment amount + MT5 deposit
+                            if transaction.transaction_type == 'deposit_trading':
+                                investment.amount = Decimal(str(investment.amount)) + Decimal(str(transaction.amount))
+                                investment.save()
+                                
+                                # Perform MT5 deposit to the PAMM pool
+                                import logging
+                                logger = logging.getLogger(__name__)
+                                logger.info(f"[PAMM INVESTOR DEPOSIT] Starting MT5 deposit for transaction {transaction.id}: ${transaction.amount} to account {transaction.trading_account.account_id}")
+                                
+                                mt5_success = False
+                                try:
+                                    from adminPanel.mt5.services import MT5ManagerActions
+                                    mt5_manager = MT5ManagerActions()
+                                    
+                                    # Get balance before deposit
+                                    balance_before = mt5_manager.get_balance(int(transaction.trading_account.account_id))
+                                    logger.info(f"[PAMM INVESTOR DEPOSIT] MT5 balance BEFORE deposit: ${balance_before}")
+                                    
+                                    # Perform deposit
+                                    mt5_success = mt5_manager.deposit_funds(
+                                        login_id=int(transaction.trading_account.account_id),
+                                        amount=float(transaction.amount),
+                                        comment=f"Investor deposit to PAMM {pamm_account.name}"
+                                    )
+                                    
+                                    logger.info(f"[PAMM INVESTOR DEPOSIT] MT5 deposit result: {'SUCCESS' if mt5_success else 'FAILED'}")
+                                    
+                                    # Update TradingAccount balance
+                                    new_balance = mt5_manager.get_balance(int(transaction.trading_account.account_id))
+                                    logger.info(f"[PAMM INVESTOR DEPOSIT] MT5 balance AFTER deposit: ${new_balance} (expected: ${balance_before + float(transaction.amount) if balance_before else 'N/A'})")
+                                    
+                                    if new_balance is not None:
+                                        transaction.trading_account.balance = Decimal(str(new_balance))
+                                        transaction.trading_account.save()
+                                        logger.info(f"[PAMM INVESTOR DEPOSIT] TradingAccount balance updated to ${new_balance}")
+                                    else:
+                                        logger.warning(f"[PAMM INVESTOR DEPOSIT] Could not retrieve new balance from MT5")
+                                        
+                                except Exception as e:
+                                    logger.error(f"[PAMM INVESTOR DEPOSIT] MT5 deposit FAILED with exception: {e}", exc_info=True)
+                                
+                                # Add note to transaction if MT5 failed
+                                if not mt5_success:
+                                    transaction.notes = (transaction.notes or '') + f"\n[WARNING] MT5 deposit may have failed - please verify account {transaction.trading_account.account_id} balance manually."
+                                    transaction.save()
+                            
+                            # Investor withdrawal approved - decrease investment amount + MT5 withdrawal
+                            elif transaction.transaction_type == 'withdraw_trading':
+                                current_amount = Decimal(str(investment.amount))
+                                withdrawal_amount = Decimal(str(transaction.amount))
+                                # Reduce investment (min 0)
+                                investment.amount = max(current_amount - withdrawal_amount, Decimal('0'))
+                                investment.save()
+                                
+                                # Perform MT5 withdrawal from the PAMM pool
+                                try:
+                                    from adminPanel.mt5.services import MT5ManagerActions
+                                    mt5_manager = MT5ManagerActions()
+                                    mt5_manager.withdraw_funds(
+                                        login_id=int(transaction.trading_account.account_id),
+                                        amount=float(transaction.amount),
+                                        comment=f"Investor withdrawal from PAMM {pamm_account.name}"
+                                    )
+                                    # Update TradingAccount balance
+                                    new_balance = mt5_manager.get_balance(int(transaction.trading_account.account_id))
+                                    if new_balance is not None:
+                                        transaction.trading_account.balance = Decimal(str(new_balance))
+                                        transaction.trading_account.save()
+                                except Exception as e:
+                                    import logging
+                                    logging.getLogger(__name__).warning(f"MT5 withdrawal failed for investor PAMM withdrawal: {e}")
         
         # Update transaction status
         transaction.status = 'approved'
