@@ -67,6 +67,7 @@ from .views.user_views import (
     update_user_status,
     list_ib_users
 )
+from .views.upload_views import upload_admin_files
 from .views.user_bank_details import UserBankDetailsView
 from .views.admin_manager_views import (
     list_admin_managers,
@@ -305,6 +306,7 @@ urlpatterns = [
     path('api/investor-accounts/', investor_accounts_list, name='api-investor-accounts'),
     path('api/admin-manager/<int:user_id>/', api_get_admin_manager_details, name='api-admin-manager-details'),
     path('api/create-admin-manager/', create_admin_manager, name='api-create-admin-manager'),
+    path('api/upload-admin-files/', upload_admin_files, name='api-upload-admin-files'),
     
     # MAM investor endpoints
     path('api/mam-investors/', MAMInvestorView.as_view(), name='api-mam-investors'),
