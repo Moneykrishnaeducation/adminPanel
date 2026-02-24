@@ -1520,8 +1520,8 @@ class ApproveTransactionView(APIView):
 
             transaction.save()
 
-            # Handle PAMM pool balance update for PAMM deposits and withdrawals
-            if transaction.source in ('PAMM', 'PAMM_MANAGER'):
+            # PAMM backend removed — skip PAMM-specific bookkeeping
+            if False:  # previously: if transaction.source in ('PAMM', 'PAMM_MANAGER'):
                 try:
                     import re
                     from decimal import Decimal

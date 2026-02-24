@@ -717,148 +717,7 @@ class DepositView(APIView):
             except Exception as email_error:
                 logger.warning(f"Failed to send deposit email: {email_error}")
 
-            # Handle PAM-related bookkeeping:
-            # If this deposit includes an `investment_id`, treat it as an investor deposit
-            # and credit the corresponding PAMInvestment. Otherwise, auto-credit manager capital
-            # for PAM-linked accounts when applicable.
-            investor_updated = False
-            investment_new_amount = None
-            manager_capital_updated = False
-            try:
-                from clientPanel.models import PAMAccount, PAMInvestment
-                from django.db import transaction as db_transaction
-                investment_id = request.data.get('investment_id') or request.POST.get('investment_id')
-                if investment_id:
-                    try:
-                        with db_transaction.atomic():
-                            inv = PAMInvestment.objects.select_for_update().get(pk=int(investment_id))
-                            pam_for_inv = inv.pam_account
-                            deposit_dec = Decimal(str(amount))
-
-                            # ------------------------------------------------------------------
-                            # INVESTOR ADDITIONAL DEPOSIT — preserve pre-existing P/L.
-                            #
-                            # The MT5 deposit has already fired above, so TradingAccount.balance
-                            # may already include the new cash.  Recover old_pool carefully:
-                            #   - If _pool_balance_ledger is set → it is not yet updated → pre-deposit.
-                            #   - Otherwise → pool_balance reads MT5 balance (post-deposit) →
-                            #     subtract deposit to recover the pre-deposit value.
-                            #
-                            # Then apply the same pool-ratio formula as views9.py:
-                            #   amount_delta = deposit × (initial_pool / old_pool)
-                            #   cost_basis  += deposit  (actual cash, P/L baseline)
-                            # ------------------------------------------------------------------
-                            if pam_for_inv._pool_balance_ledger is not None:
-                                old_pool = Decimal(str(pam_for_inv._pool_balance_ledger))
-                            else:
-                                # pool_balance now reads the post-deposit MT5 balance
-                                old_pool = Decimal(str(pam_for_inv.pool_balance)) - deposit_dec
-                                if old_pool <= 0:
-                                    old_pool = Decimal(str(pam_for_inv.initial_pool))
-
-                            old_initial = Decimal(str(pam_for_inv.initial_pool))  # inv.amount not yet changed
-
-                            if old_pool > 0 and old_initial > 0:
-                                amount_delta = (deposit_dec * old_initial / old_pool).quantize(Decimal('0.000000'))
-                            else:
-                                amount_delta = deposit_dec
-
-                            # Update ownership-weighted stake
-                            inv.amount = Decimal(str(inv.amount or 0)) + amount_delta
-
-                            # Update cost_basis (actual cash deposited — P/L baseline)
-                            current_basis = Decimal(str(inv.cost_basis or 0))
-                            if current_basis == 0:
-                                current_basis = Decimal(str(inv.amount)) - amount_delta
-                            inv.cost_basis = current_basis + deposit_dec
-                            inv.save()
-
-                            # Update pool ledger so pool_balance reflects the deposit
-                            if pam_for_inv._pool_balance_ledger is not None:
-                                pam_for_inv._pool_balance_ledger = old_pool + deposit_dec
-                            else:
-                                # pool_balance already includes the deposit (MT5 updated)
-                                pam_for_inv._pool_balance_ledger = Decimal(str(pam_for_inv.pool_balance))
-                            pam_for_inv.save(update_fields=['_pool_balance_ledger'])
-
-                            investor_updated = True
-                            investment_new_amount = float(inv.amount)
-                            logger.info(
-                                f"[PAM ADMIN INVESTOR DEPOSIT] inv {inv.id}: "
-                                f"amount_delta={amount_delta}, new amount={inv.amount}, "
-                                f"new cost_basis={inv.cost_basis}"
-                            )
-                    except PAMInvestment.DoesNotExist:
-                        investor_updated = False
-                else:
-                    pam = PAMAccount.objects.filter(mt5_login=str(account_id)).first()
-                    if pam:
-                        try:
-                            with db_transaction.atomic():
-                                # -------------------------------------------------------
-                                # MANAGER DEPOSIT — preserve every investor's current_amount.
-                                #
-                                # Simply incrementing manager_capital increases initial_pool,
-                                # which shrinks each investor's allocation_percentage and
-                                # reduces their current_amount — distorting their P/L.
-                                #
-                                # Correct approach (same as views9.py / ApproveTransactionView):
-                                #   C_i = old_pool × inv.amount / old_initial_pool
-                                #   old_manager_value = old_pool × manager_capital / old_initial_pool
-                                #   new_manager_value = old_manager_value + M
-                                #   new_amount_i = C_i × new_manager_capital / new_manager_value
-                                #   cost_basis unchanged (investor cash did not move)
-                                # -------------------------------------------------------
-                                M = Decimal(str(amount))
-                                old_pool = Decimal(str(pam.pool_balance))
-                                old_initial_pool = Decimal(str(pam.initial_pool))
-                                old_manager_capital = Decimal(str(pam.manager_capital or 0))
-                                new_manager_capital = old_manager_capital + M
-
-                                if old_initial_pool > 0:
-                                    old_manager_value = old_pool * old_manager_capital / old_initial_pool
-                                else:
-                                    old_manager_value = old_pool
-                                new_manager_value = old_manager_value + M
-
-                                if new_manager_value > 0:
-                                    all_investments = list(
-                                        PAMInvestment.objects.select_for_update().filter(pam_account=pam)
-                                    )
-                                    for inv in all_investments:
-                                        C_i = (
-                                            old_pool * Decimal(str(inv.amount)) / old_initial_pool
-                                            if old_initial_pool > 0 else Decimal('0')
-                                        )
-                                        inv.amount = (
-                                            C_i * new_manager_capital / new_manager_value
-                                        ).quantize(Decimal('0.000000'))
-                                        # cost_basis unchanged — investor's actual cash did not move
-                                    if all_investments:
-                                        PAMInvestment.objects.bulk_update(all_investments, ['amount'])
-
-                                pam.manager_capital = new_manager_capital
-                                # Also update pool ledger so pool_balance reflects the deposit
-                                if pam._pool_balance_ledger is not None:
-                                    pam._pool_balance_ledger = (
-                                        Decimal(str(pam._pool_balance_ledger)) + M
-                                    )
-                                # (if _pool_balance_ledger is None, pool_balance comes from MT5 balance
-                                #  which is already updated above via trading_account.balance)
-                                pam.save()
-                                manager_capital_updated = True
-                                logger.info(
-                                    f"[PAM ADMIN DEPOSIT] PAMM {pam.id}: manager_capital "
-                                    f"{old_manager_capital} → {new_manager_capital}, "
-                                    f"investor amounts re-scaled to preserve P/L."
-                                )
-                        except Exception as pam_exc:
-                            logger.error(f"[PAM ADMIN DEPOSIT] Failed to update PAM bookkeeping: {pam_exc}", exc_info=True)
-                            manager_capital_updated = False
-            except Exception:
-                investor_updated = False
-                manager_capital_updated = False
-
+            # No PAM bookkeeping here: PAMM backend removed.
             return Response({
                 "message": "Deposit processed successfully" + (" (Fallback Mode - MT5 Integration Failed)" if not mt5_success else ""),
                 "transaction_id": transaction.id,
@@ -871,9 +730,6 @@ class DepositView(APIView):
                 "mt5_integration": mt5_success,
                 "mt5_error": mt5_error if not mt5_success else None,
                 "fallback_mode": not mt5_success,
-                "manager_capital_updated": manager_capital_updated,
-                "investor_updated": investor_updated,
-                "investment_new_amount": investment_new_amount
             }, status=status.HTTP_201_CREATED)
         
         except TradingAccount.DoesNotExist:
@@ -1019,119 +875,15 @@ class WithdrawView(APIView):
                     related_object_type="Transaction"
                 )
                 
-                # PAM withdrawal bookkeeping — mutually exclusive:
-                #   investment_id present → INVESTOR withdrawal
-                #   investment_id absent  → MANAGER withdrawal
-                manager_debited = False
-                manager_capital_value = None
-                investor_debited = False
-                try:
-                    from clientPanel.models import PAMAccount, PAMInvestment
-                    from django.db import transaction as db_transaction
-
-                    investment_id = request.data.get('investment_id') or request.POST.get('investment_id')
-
-                    if investment_id:
-                        # ── INVESTOR WITHDRAWAL ───────────────────────────────────────
-                        # Formula (MT5 already fired; recover pre-withdrawal old_pool):
-                        #   k = W / pre_current_amount    (fraction of stake redeemed)
-                        #   amount_delta = old_amount × k
-                        #   cost_basis  -= W              (actual cash returned)
-                        #   pool_ledger -= W              (pool shrinks by exact amount)
-                        try:
-                            with db_transaction.atomic():
-                                investment = PAMInvestment.objects.select_for_update().get(pk=int(investment_id))
-                                pam_inv = investment.pam_account
-                                W = Decimal(str(amount))
-
-                                if pam_inv._pool_balance_ledger is not None:
-                                    old_pool_inv = Decimal(str(pam_inv._pool_balance_ledger))
-                                else:
-                                    # pool_balance reads post-withdrawal MT5; restore W
-                                    old_pool_inv = Decimal(str(pam_inv.pool_balance)) + W
-
-                                old_initial_inv = Decimal(str(pam_inv.initial_pool))
-                                if old_initial_inv > 0:
-                                    pre_current_val = old_pool_inv * Decimal(str(investment.amount)) / old_initial_inv
-                                else:
-                                    pre_current_val = Decimal('0')
-
-                                if pre_current_val > 0:
-                                    k = min(W / pre_current_val, Decimal('1'))
-                                    amount_delta = (Decimal(str(investment.amount)) * k).quantize(Decimal('0.00000'))
-                                    investment.amount = max(Decimal(str(investment.amount)) - amount_delta, Decimal('0'))
-                                    investment.cost_basis = max(Decimal(str(investment.cost_basis)) - W, Decimal('0'))
-                                else:
-                                    investment.amount = Decimal('0')
-                                investment.save()
-
-                                pam_inv._pool_balance_ledger = max(old_pool_inv - W, Decimal('0'))
-                                pam_inv.save(update_fields=['_pool_balance_ledger'])
-                                investor_debited = True
-                                logger.info(
-                                    f"[PAM ADMIN INV WITHDRAWAL] inv {investment.id}: "
-                                    f"amount_delta={amount_delta}, pool_ledger←{pam_inv._pool_balance_ledger}"
-                                )
-                        except PAMInvestment.DoesNotExist:
-                            logger.error(f"[PAM ADMIN INV WITHDRAWAL] investment {investment_id} not found")
-                        except Exception as inv_exc:
-                            logger.error(f"[PAM ADMIN INV WITHDRAWAL] Bookkeeping failed: {inv_exc}", exc_info=True)
-
-                    else:
-                        # ── MANAGER WITHDRAWAL ────────────────────────────────────────
-                        # Re-scale every investor's inv.amount so their current_amount is
-                        # preserved, then shrink manager_capital and pool ledger.
-                        pam = PAMAccount.objects.filter(mt5_login=str(account_id)).first()
-                        if pam:
-                            try:
-                                with db_transaction.atomic():
-                                    W = Decimal(str(amount))
-                                    if pam._pool_balance_ledger is not None:
-                                        old_pool = Decimal(str(pam._pool_balance_ledger))
-                                    else:
-                                        old_pool = Decimal(str(pam.pool_balance)) + W
-
-                                    old_initial = Decimal(str(pam.initial_pool))
-                                    old_mc = Decimal(str(pam.manager_capital or 0))
-                                    new_mc = max(old_mc - W, Decimal('0'))
-
-                                    if old_initial > 0:
-                                        old_mgr_value = old_pool * old_mc / old_initial
-                                    else:
-                                        old_mgr_value = old_pool
-                                    new_mgr_value = old_mgr_value - W
-
-                                    if new_mgr_value > 0 and old_initial > 0:
-                                        all_investments = list(
-                                            PAMInvestment.objects.select_for_update().filter(pam_account=pam)
-                                        )
-                                        for inv in all_investments:
-                                            C_i = old_pool * Decimal(str(inv.amount)) / old_initial
-                                            inv.amount = (C_i * new_mc / new_mgr_value).quantize(Decimal('0.00000'))
-                                        if all_investments:
-                                            PAMInvestment.objects.bulk_update(all_investments, ['amount'])
-
-                                    pam.manager_capital = new_mc
-                                    pam._pool_balance_ledger = max(old_pool - W, Decimal('0'))
-                                    pam.save()
-                                    manager_debited = True
-                                    manager_capital_value = float(pam.manager_capital)
-                                    logger.info(
-                                        f"[PAM ADMIN WITHDRAWAL] PAMM {pam.id}: manager_capital "
-                                        f"{old_mc} → {new_mc}, investors re-scaled."
-                                    )
-                            except Exception as pam_exc:
-                                logger.error(f"[PAM ADMIN WITHDRAWAL] Bookkeeping failed: {pam_exc}", exc_info=True)
-                except Exception as outer_exc:
-                    logger.error(f"[PAM ADMIN WITHDRAWAL] outer error: {outer_exc}", exc_info=True)
+                # PAM bookkeeping removed. Send withdrawal email and return basic response.
                 try:
                     send_withdrawal_email(trading_account.user, transaction)
                     logger.info("Withdrawal notification email sent successfully")
                 except Exception as email_error:
                     logger.warning(f"Failed to send withdrawal email: {email_error}")
-                
+
                 logger.info(f"Withdrawal completed successfully: transaction_id={transaction.id}")
-                
+
                 return Response({
                     "message": "Withdrawal successful.",
                     "transaction_id": transaction.id,
@@ -1142,8 +894,6 @@ class WithdrawView(APIView):
                     "status": "approved",
                     "created_at": transaction.created_at.isoformat(),
                     "mt5_integration": True,
-                    "manager_debited": manager_debited,
-                    "manager_capital": manager_capital_value
                 }, status=status.HTTP_201_CREATED)
                 
             else:

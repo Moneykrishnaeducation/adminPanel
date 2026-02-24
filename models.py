@@ -794,7 +794,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     MAM_manager_status = models.BooleanField(default=False)
 
-    otp = models.CharField(max_length=6, blank=True, null=True)
+    otp = models.CharField(max_length=256, blank=True, null=True)
     otp_created_at = models.DateTimeField(blank=True, null=True)
     # Separate fields for login-specific OTPs to avoid collision with password-reset OTPs
     # max_length=256 to store hashed OTP (format: salt$hash)
