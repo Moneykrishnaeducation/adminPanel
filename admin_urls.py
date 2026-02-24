@@ -63,8 +63,7 @@ from .views.verification_integration import (
     get_verification_analytics
 )
 
-# Import PAMM admin views
-from clientPanel.views import pamm_admin_views
+# PAMM admin views removed (backend PAMM feature deleted)
 
 urlpatterns = [
     # API endpoints FIRST (most specific patterns first)
@@ -102,15 +101,7 @@ urlpatterns = [
     path('api/upload-document/', upload_document, name='upload-document'),
     path('api/verify-document/<str:document_type>/', verify_document, name='verify-document'),
     
-    # PAMM Admin endpoints
-    path('api/pamm/deposits/pending/', pamm_admin_views.list_pending_deposits, name='api-pamm-pending-deposits'),
-    path('api/pamm/deposits/<int:deposit_id>/approve/', pamm_admin_views.approve_pamm_deposit, name='api-pamm-approve-deposit'),
-    path('api/pamm/deposits/<int:deposit_id>/reject/', pamm_admin_views.reject_pamm_deposit, name='api-pamm-reject-deposit'),
-    path('api/pamm/withdrawals/pending/', pamm_admin_views.list_pending_withdrawals, name='api-pamm-pending-withdrawals'),
-    path('api/pamm/withdrawals/<int:withdrawal_id>/approve/', pamm_admin_views.approve_pamm_withdrawal, name='api-pamm-approve-withdrawal'),
-    path('api/pamm/withdrawals/<int:withdrawal_id>/complete/', pamm_admin_views.complete_pamm_withdrawal, name='api-pamm-complete-withdrawal'),
-    path('api/pamm/<int:pamm_id>/distribute-profits/', pamm_admin_views.distribute_pamm_profits, name='api-pamm-distribute-profits'),
-    path('api/pamm/<int:pamm_id>/pool-equity/', pamm_admin_views.get_pamm_pool_equity, name='api-pamm-pool-equity'),
+    # PAMM Admin endpoints removed (backend PAMM feature deleted)
     
     # Non-API endpoints (less specific patterns)
     # Users API endpoint for admin subdomain

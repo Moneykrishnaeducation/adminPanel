@@ -208,7 +208,6 @@ from .views.commission_details import commission_details_view
 from .views.views4 import UserDetailView
 # New: Import the new API view for listing accounts by type
 from .views.mam_api_views import mam_accounts_list, investor_accounts_list
-from .views.pam_api_views import pam_accounts_list, pam_investors_list, pam_update_manager_capital
 from .views.trading_account_api import ListAccountsByTypeView, InternalTransferSubmitView, SendTransferNotificationView
 from .views.export_views import (
     export_users_csv,
@@ -311,10 +310,7 @@ urlpatterns = [
     path('api/mam-investors/', MAMInvestorView.as_view(), name='api-mam-investors'),
     path('api/mam-investors/<str:account_id>/', MAMInvestmentDetailsView.as_view(), name='api-mam-investor-detail'),
     path('api/mam-managers/', list_mam_managers, name='api-mam-managers'),
-    # PAM API endpoints (clientPanel PAM models exposed to admin)
-    path('api/pam-accounts/', pam_accounts_list, name='api-pam-accounts'),
-    path('api/pam-investors/', pam_investors_list, name='api-pam-investors'),
-    path('api/pam-accounts/<str:mt5_login>/manager-capital/', pam_update_manager_capital, name='api-pam-update-manager-capital'),
+    # PAM API endpoints removed (backend PAMM feature deleted)
     path('api/admin-manager/<int:user_id>/', api_get_admin_manager_details, name='api-admin-manager-details'),
     path('api/create-admin-manager/', create_admin_manager, name='api-create-admin-manager'),
     path('api/admin-manager/<int:user_id>/update/', update_admin_manager, name='api-update-admin-manager'),
