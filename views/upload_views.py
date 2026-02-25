@@ -1,6 +1,7 @@
 import os
 import logging
 from django.conf import settings
+from adminPanel.models import ActivityLog
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -42,9 +43,9 @@ def upload_admin_files(request):
 
     # Allow uploads for staff/superuser OR for users with role='admin' or manager_admin_status='Admin'
     allowed = False
-    if  getattr(user, 'is_superuser', False):
+    if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
         allowed = True
-
+    else:
         role = getattr(user, 'role', None)
         manager_status = getattr(user, 'manager_admin_status', None)
         if role and str(role).lower() == 'admin':
@@ -52,7 +53,7 @@ def upload_admin_files(request):
         if manager_status and str(manager_status).lower() == 'admin':
             allowed = True
 
-    else:
+    if not allowed:
         return JsonResponse({'error': 'Forbidden'}, status=403)
 
     files = request.FILES.getlist('files')
@@ -77,6 +78,7 @@ def upload_admin_files(request):
 
     saved = []
     try:
+        uploaded_names = []
         for f in files:
             # Extension check
             if not _is_allowed_extension(f.name):
@@ -86,8 +88,14 @@ def upload_admin_files(request):
             if max_bytes is not None and f.size > max_bytes:
                 return JsonResponse({'error': 'File too large', 'details': f"{f.name} exceeds {max_bytes} bytes"}, status=400)
 
-            # Preserve original filename; handle collisions by appending suffix
-            safe_name = _ensure_unique_filename(admin_dir, f.name)
+            # Save using pattern: "Technical Analysis Report YYYY-MM-DD" + original extension
+            from django.utils import timezone
+
+            date_str = timezone.now().strftime('%d-%m-%Y')
+            ext = os.path.splitext(f.name)[1]
+            target_name = f"Technical Analysis Report {date_str}{ext}"
+            # Ensure unique filename in the directory
+            safe_name = _ensure_unique_filename(admin_dir, target_name)
             dest_path = os.path.join(admin_dir, safe_name)
 
             with open(dest_path, 'wb+') as out:
@@ -95,8 +103,26 @@ def upload_admin_files(request):
                     out.write(chunk)
 
             saved.append({'original_name': f.name, 'saved_name': safe_name, 'size': f.size, 'path': dest_path})
+            uploaded_names.append(safe_name)
 
-        return JsonResponse({'uploaded': saved, 'message': 'Files uploaded'}, status=201)
+        # Record activity log entry for this upload
+        try:
+            ip = request.META.get('REMOTE_ADDR') or request.META.get('HTTP_X_FORWARDED_FOR', '')
+            ua = request.META.get('HTTP_USER_AGENT', '')
+            # Use existing ActivityLog model fields
+            ActivityLog.objects.create(
+                user=user,
+                activity=f"Uploaded files: {', '.join(uploaded_names)}",
+                ip_address=ip,
+                activity_type='create',
+                user_agent=ua,
+                status_code=201,
+                related_object_type='file_upload',
+            )
+        except Exception:
+            logger.exception('Failed to create admin activity log')
+
+        return JsonResponse({'message': 'Files uploaded'}, status=201)
     except Exception as e:
         logger.exception('Error while saving admin upload files')
         return JsonResponse({'error': 'Internal server error', 'details': str(e)}, status=500)
