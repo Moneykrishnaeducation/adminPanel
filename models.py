@@ -1660,7 +1660,7 @@ class CryptoDetails(models.Model):
         return f"{self.user.username}'s Crypto Details"
 
 class ActivityLog(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
     activity = models.TextField()
     timestamp = models.DateTimeField(auto_now_add=True)
     ip_address = models.CharField(max_length=100, blank=True, null=True)
