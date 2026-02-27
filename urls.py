@@ -217,6 +217,24 @@ from .views.export_views import (
 )
 
 from .views.ticket_views import TicketView, TicketDetailView
+from .views.pamm_admin_views import (
+    AdminPAMMListView,
+    AdminPAMMDetailView,
+    AdminPAMMTransactionListView,
+    AdminApprovePAMMTransactionView,
+    AdminRejectPAMMTransactionView,
+    AdminUpdatePAMMEquityView,
+    AdminCalculateManagerFeeView,
+    AdminPAMMParticipantsView,
+    AdminPAMMEquityHistoryView,
+    AdminPAMMStatisticsView,
+    AdminTogglePAMMStatusView,
+    AdminTogglePAMMAcceptingInvestorsView,
+    AdminPAMMTransactionDetailsView,
+    AdminBulkApprovePAMMTransactionsView,
+    AdminPAMMAccountsTableView,
+    AdminPAMMInvestorsTableView,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -764,4 +782,31 @@ urlpatterns += [
     
 ]
 
+# PAMM Admin API endpoints (inlined)
+urlpatterns += [
+    # Management
+    path('api/admin/pamm/list/', AdminPAMMListView.as_view(), name='admin-pamm-list'),
+    path('api/admin/pamm/<int:pamm_id>/', AdminPAMMDetailView.as_view(), name='admin-pamm-detail'),
+    path('api/admin/pamm/<int:pamm_id>/participants/', AdminPAMMParticipantsView.as_view(), name='admin-pamm-participants'),
+    path('api/admin/pamm/<int:pamm_id>/equity-history/', AdminPAMMEquityHistoryView.as_view(), name='admin-pamm-equity-history'),
+    path('api/admin/pamm/statistics/', AdminPAMMStatisticsView.as_view(), name='admin-pamm-statistics'),
 
+    # Status control
+    path('api/admin/pamm/toggle-status/', AdminTogglePAMMStatusView.as_view(), name='admin-pamm-toggle-status'),
+    path('api/admin/pamm/toggle-accepting-investors/', AdminTogglePAMMAcceptingInvestorsView.as_view(), name='admin-pamm-toggle-accepting'),
+
+    # Transactions
+    path('api/admin/pamm/transactions/', AdminPAMMTransactionListView.as_view(), name='admin-pamm-transactions'),
+    path('api/admin/pamm/transaction/<int:transaction_id>/', AdminPAMMTransactionDetailsView.as_view(), name='admin-pamm-transaction-detail'),
+    path('api/admin/pamm/transaction/approve/', AdminApprovePAMMTransactionView.as_view(), name='admin-pamm-approve-transaction'),
+    path('api/admin/pamm/transaction/reject/', AdminRejectPAMMTransactionView.as_view(), name='admin-pamm-reject-transaction'),
+    path('api/admin/pamm/transaction/bulk-approve/', AdminBulkApprovePAMMTransactionsView.as_view(), name='admin-pamm-bulk-approve'),
+
+    # Equity & fees
+    path('api/admin/pamm/update-equity/', AdminUpdatePAMMEquityView.as_view(), name='admin-pamm-update-equity'),
+    path('api/admin/pamm/calculate-fee/', AdminCalculateManagerFeeView.as_view(), name='admin-pamm-calculate-fee'),
+    
+    # Admin Panel Tables (compatible with MAM panel structure)
+    path('api/pam-accounts/', AdminPAMMAccountsTableView.as_view(), name='admin-pam-accounts-table'),
+    path('api/pam-investors/', AdminPAMMInvestorsTableView.as_view(), name='admin-pam-investors-table'),
+]

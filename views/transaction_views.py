@@ -9,6 +9,8 @@ from ..roles import UserRole
 from ..models import Transaction
 from ..serializers import TransactionSerializer
 from ..permissions import OrPermission, IsAdmin, IsManager, IsAdminOrManager
+from ..models_pamm import PAMMTransaction
+from ..serializers_pamm import PAMMTransactionSerializer
 
 @api_view(['GET'])
 @role_required([UserRole.ADMIN.value, UserRole.MANAGER.value])
@@ -302,13 +304,19 @@ def admin_transactions_list(request):
 @role_required([UserRole.ADMIN.value, UserRole.MANAGER.value])
 @permission_classes([IsAuthenticated, IsAdminOrManager])
 def pending_deposits_view(request):
-    """Get pending deposit transactions"""
+    """Get pending deposit transactions (including PAMM deposits)"""
     try:
-        # Filter for pending deposits (including PAMM deposits)
+        # Filter for regular pending deposits
         deposits = Transaction.objects.filter(
             transaction_type__in=['deposit', 'deposit_trading', 'deposit_commission'],
             status='pending'
         ).select_related('user', 'trading_account')
+        
+        # Filter for PAMM pending deposits
+        pamm_deposits = PAMMTransaction.objects.filter(
+            status='PENDING',
+            transaction_type__in=['MANAGER_DEPOSIT', 'INVESTOR_DEPOSIT']
+        ).select_related('pamm', 'participant__user', 'approved_by')
         
         # Apply date filters if provided
         start_date = request.GET.get('start_date')
@@ -317,33 +325,71 @@ def pending_deposits_view(request):
         
         if start_date:
             deposits = deposits.filter(created_at__gte=start_date)
+            pamm_deposits = pamm_deposits.filter(created_at__gte=start_date)
         if end_date:
             deposits = deposits.filter(created_at__lte=end_date)
+            pamm_deposits = pamm_deposits.filter(created_at__lte=end_date)
         if search:
             deposits = deposits.filter(
                 Q(user__username__icontains=search) |
                 Q(user__email__icontains=search) |
                 Q(trading_account__account_id__icontains=search)
             )
+            pamm_deposits = pamm_deposits.filter(
+                Q(participant__user__username__icontains=search) |
+                Q(participant__user__email__icontains=search) |
+                Q(pamm__name__icontains=search) |
+                Q(pamm__mt5_account_id__icontains=search)
+            )
         
         # For managers, only show transactions of their assigned clients (created_by)
         if request.user.manager_admin_status == 'Manager':
             deposits = deposits.filter(user__created_by=request.user)
+            pamm_deposits = pamm_deposits.filter(participant__user__created_by=request.user)
         
         deposits = deposits.order_by('-created_at')
+        pamm_deposits = pamm_deposits.order_by('-created_at')
 
-        # Pagination for pending endpoints
+        # Serialize both types
+        regular_serializer = TransactionSerializer(deposits, many=True, context={'request': request})
+        pamm_serializer = PAMMTransactionSerializer(pamm_deposits, many=True)
+        
+        # Combine results with a type indicator
+        regular_data = regular_serializer.data
+        for item in regular_data:
+            item['transaction_category'] = 'REGULAR'
+            
+        pamm_data = pamm_serializer.data
+        for item in pamm_data:
+            item['transaction_category'] = 'PAMM'
+            # Map PAMM fields to match regular transaction structure for frontend compatibility
+            item['user_email'] = item.get('participant_email', '')
+            item['user_name'] = item.get('participant_name', '')
+            item['username'] = item.get('participant_name', 'PAMM User')
+            item['email'] = item.get('participant_email', '')
+            item['account_id'] = item.get('pamm_name', '')
+            item['trading_account_id'] = item.get('pamm_name', '')
+            item['document_url'] = item.get('payment_proof', '')
+            item['document'] = item.get('payment_proof', '')
+            item['source'] = item.get('payment_method', 'PAMM')
+            item['description'] = f"PAMM {item.get('transaction_type', '')} - {item.get('pamm_name', '')}"
+            # Set transaction_type_display so frontend filter doesn't exclude PAMM deposits
+            item['transaction_type_display'] = 'Deposit into Trading Account'
+        
+        # Combine and sort by created_at
+        combined = regular_data + pamm_data
+        combined.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        # Pagination
         page = int(request.GET.get('page', 1))
         page_size = int(request.GET.get('page_size', 10))
-        total = deposits.count()
+        total = len(combined)
         start = (page - 1) * page_size
         end = start + page_size
-        paginated = deposits[start:end]
+        paginated = combined[start:end]
 
-        # Use the TransactionSerializer to include document_url and other fields
-        serializer = TransactionSerializer(paginated, many=True, context={'request': request})
         return Response({
-            "results": serializer.data,
+            "results": paginated,
             "total": total,
             "page": page,
             "page_size": page_size
@@ -355,19 +401,25 @@ def pending_deposits_view(request):
 @role_required([UserRole.ADMIN.value, UserRole.MANAGER.value])
 @permission_classes([IsAuthenticated, IsAdminOrManager])
 def pending_withdrawals_view(request):
-    """Get pending withdrawal transactions"""
+    """Get pending withdrawal transactions (including PAMM withdrawals)"""
     try:
-        # Filter for pending withdrawals (including PAMM withdrawals)
+        # Filter for regular pending withdrawals
         withdrawals = Transaction.objects.filter(
             status='pending',
             transaction_type__in=['withdrawal', 'withdraw_trading', 'commission_withdrawal']
         ).select_related('user', 'trading_account')
         
+        # Filter for PAMM pending withdrawals
+        pamm_withdrawals = PAMMTransaction.objects.filter(
+            status='PENDING',
+            transaction_type__in=['MANAGER_WITHDRAW', 'INVESTOR_WITHDRAW']
+        ).select_related('pamm', 'participant__user', 'approved_by')
+        
         # Debug logging
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"Total pending withdrawals found: {withdrawals.count()}")
-        logger.info(f"Transaction types: {list(withdrawals.values_list('transaction_type', flat=True))}")
+        logger.info(f"Total regular pending withdrawals found: {withdrawals.count()}")
+        logger.info(f"Total PAMM pending withdrawals found: {pamm_withdrawals.count()}")
         
         # Apply date filters if provided
         start_date = request.GET.get('start_date')
@@ -376,31 +428,68 @@ def pending_withdrawals_view(request):
         
         if start_date:
             withdrawals = withdrawals.filter(created_at__gte=start_date)
+            pamm_withdrawals = pamm_withdrawals.filter(created_at__gte=start_date)
         if end_date:
             withdrawals = withdrawals.filter(created_at__lte=end_date)
+            pamm_withdrawals = pamm_withdrawals.filter(created_at__lte=end_date)
         if search:
             withdrawals = withdrawals.filter(
                 Q(user__username__icontains=search) |
                 Q(user__email__icontains=search) |
                 Q(trading_account__account_id__icontains=search)
             )
+            pamm_withdrawals = pamm_withdrawals.filter(
+                Q(participant__user__username__icontains=search) |
+                Q(participant__user__email__icontains=search) |
+                Q(pamm__name__icontains=search) |
+                Q(pamm__mt5_account_id__icontains=search)
+            )
         
         # Remove manager filtering: always show all pending withdrawals for admins and managers
         
         withdrawals = withdrawals.order_by('-created_at')
+        pamm_withdrawals = pamm_withdrawals.order_by('-created_at')
 
-        # Pagination for pending endpoints
+        # Serialize both types
+        regular_serializer = TransactionSerializer(withdrawals, many=True)
+        pamm_serializer = PAMMTransactionSerializer(pamm_withdrawals, many=True)
+        
+        # Combine results with a type indicator
+        regular_data = regular_serializer.data
+        for item in regular_data:
+            item['transaction_category'] = 'REGULAR'
+            
+        pamm_data = pamm_serializer.data
+        for item in pamm_data:
+            item['transaction_category'] = 'PAMM'
+            # Map PAMM fields to match regular transaction structure for frontend compatibility
+            item['user_email'] = item.get('participant_email', '')
+            item['user_name'] = item.get('participant_name', '')
+            item['username'] = item.get('participant_name', 'PAMM User')
+            item['email'] = item.get('participant_email', '')
+            item['account_id'] = item.get('pamm_name', '')
+            item['trading_account_id'] = item.get('pamm_name', '')
+            item['document_url'] = item.get('payment_proof', '')
+            item['document'] = item.get('payment_proof', '')
+            item['source'] = item.get('payment_method', 'PAMM')
+            item['description'] = f"PAMM {item.get('transaction_type', '')} - {item.get('pamm_name', '')}"
+            # Set transaction_type_display so frontend filter doesn't exclude PAMM withdrawals
+            item['transaction_type_display'] = 'Withdrawal from Trading Account'
+        
+        # Combine and sort by created_at
+        combined = regular_data + pamm_data
+        combined.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        # Pagination
         page = int(request.GET.get('page', 1))
         page_size = int(request.GET.get('page_size', 10))
-        total = withdrawals.count()
+        total = len(combined)
         start = (page - 1) * page_size
         end = start + page_size
-        paginated = withdrawals[start:end]
+        paginated = combined[start:end]
 
-        # Use TransactionSerializer for consistent frontend keys
-        serializer = TransactionSerializer(paginated, many=True)
         return Response({
-            "results": serializer.data,
+            "results": paginated,
             "total": total,
             "page": page,
             "page_size": page_size

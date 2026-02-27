@@ -629,6 +629,48 @@ class DepositView(APIView):
                 "error": "amount must be a valid number"
             }, status=status.HTTP_400_BAD_REQUEST)
         
+        # Check if this is a PAMM account first
+        from adminPanel.models_pamm import PAMMAccount, PAMMTransaction, PAMMParticipant
+        try:
+            pamm_account = PAMMAccount.objects.get(mt5_account_id=account_id)
+            # This is a PAMM account - create pending transaction instead
+            logger.info(f"Found PAMM account: {pamm_account.name} (MT5: {account_id})")
+            
+            # Create pending PAMM deposit transaction
+            # For admin deposits, we'll treat it as a manager deposit
+            manager_participant = pamm_account.participants.filter(role='MANAGER').first()
+            if not manager_participant:
+                return Response({
+                    "error": f"PAMM account {account_id} has no manager"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            pamm_transaction = PAMMTransaction.objects.create(
+                pamm=pamm_account,
+                participant=manager_participant,
+                transaction_type='MANAGER_DEPOSIT',
+                amount=Decimal(str(amount)),
+                status='PENDING',
+                unit_price_at_transaction=pamm_account.unit_price(),
+                notes=comment
+            )
+            
+            logger.info(f"Created pending PAMM deposit transaction: {pamm_transaction.id}")
+            
+            return Response({
+                "message": "PAMM deposit request created. Pending approval.",
+                "transaction_id": pamm_transaction.id,
+                "account_id": account_id,
+                "amount": float(amount),
+                "status": "pending",
+                "pamm_account": pamm_account.name,
+                "requires_approval": True,
+                "created_at": pamm_transaction.created_at.isoformat(),
+            }, status=status.HTTP_201_CREATED)
+            
+        except PAMMAccount.DoesNotExist:
+            # Not a PAMM account, continue with regular trading account logic
+            pass
+        
         try:
             # Find the trading account
             trading_account = TradingAccount.objects.get(account_id=account_id)
@@ -805,6 +847,55 @@ class WithdrawView(APIView):
             return Response({
                 "error": "Invalid amount format."
             }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if this is a PAMM account first
+        from adminPanel.models_pamm import PAMMAccount, PAMMTransaction, PAMMParticipant
+        try:
+            pamm_account = PAMMAccount.objects.get(mt5_account_id=account_id)
+            # This is a PAMM account - create pending withdrawal transaction
+            logger.info(f"Found PAMM account: {pamm_account.name} (MT5: {account_id})")
+            
+            # Create pending PAMM withdrawal transaction
+            # For admin withdrawals, we'll treat it as a manager withdrawal
+            manager_participant = pamm_account.participants.filter(role='MANAGER').first()
+            if not manager_participant:
+                return Response({
+                    "error": f"PAMM account {account_id} has no manager"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if manager has sufficient balance
+            manager_balance = manager_participant.current_balance()
+            if manager_balance < Decimal(str(amount)):
+                return Response({
+                    "error": f"Insufficient manager balance. Available: ${manager_balance:.2f}, Requested: ${amount:.2f}"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            pamm_transaction = PAMMTransaction.objects.create(
+                pamm=pamm_account,
+                participant=manager_participant,
+                transaction_type='MANAGER_WITHDRAW',
+                amount=Decimal(str(amount)),
+                status='PENDING',
+                unit_price_at_transaction=pamm_account.unit_price(),
+                notes=comment
+            )
+            
+            logger.info(f"Created pending PAMM withdrawal transaction: {pamm_transaction.id}")
+            
+            return Response({
+                "message": "PAMM withdrawal request created. Pending approval.",
+                "transaction_id": pamm_transaction.id,
+                "account_id": account_id,
+                "amount": float(amount),
+                "status": "pending",
+                "pamm_account": pamm_account.name,
+                "requires_approval": True,
+                "created_at": pamm_transaction.created_at.isoformat(),
+            }, status=status.HTTP_201_CREATED)
+            
+        except PAMMAccount.DoesNotExist:
+            # Not a PAMM account, continue with regular trading account logic
+            pass
         
         try:
             # Find the trading account

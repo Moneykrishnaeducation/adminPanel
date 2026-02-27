@@ -2364,3 +2364,7 @@ class DailyTradingReport(models.Model):
 
     def __str__(self):
         return f"DailyReport {self.trading_account.account_id} - {self.report_date} ({self.status})"
+
+
+# Import PAMM models
+from adminPanel.models_pamm import PAMMAccount, PAMMParticipant, PAMMTransaction, PAMMEquitySnapshot
