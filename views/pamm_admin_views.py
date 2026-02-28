@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Sum, Count
+from django.db import transaction
 from decimal import Decimal
 from django.core.exceptions import ValidationError as DjangoValidationError
 
@@ -670,7 +671,9 @@ class AdminPAMMInvestorsTableView(APIView):
             net_invested = participant.total_deposited - participant.total_withdrawn
             current_value = participant.current_balance()
             profit_loss = participant.profit_loss()
-            roi_percentage = (float(profit_loss) / float(net_invested) * 100) if net_invested > 0 else 0
+            # ROI based on original investment (total_deposited) rather than net_invested
+            # This gives consistent ROI even when withdrawals exceed deposits
+            roi_percentage = (float(profit_loss) / float(participant.total_deposited) * 100) if participant.total_deposited > 0 else 0
             
             # Get participant's transaction counts
             txn_stats = PAMMTransaction.objects.filter(participant=participant).aggregate(
@@ -729,4 +732,467 @@ class AdminPAMMInvestorsTableView(APIView):
             'page': page,
             'page_size': page_size,
         }, status=status.HTTP_200_OK)
+
+
+class AdminDirectPAMMDepositView(APIView):
+    """Direct PAMM deposit (no approval workflow) - Admin only"""
+    permission_classes = [IsAuthenticated, IsAdminOrManager]
+    
+    @transaction.atomic
+    def post(self, request):
+        account_id = request.data.get('account_id')  # MT5 account ID
+        amount = request.data.get('amount')
+        comment = request.data.get('comment', '')
+        role = request.data.get('role', 'MANAGER')  # MANAGER or INVESTOR
+        user_id = request.data.get('user_id')  # Required for INVESTOR role
+        
+        if not account_id or not amount:
+            return Response(
+                {"error": "account_id and amount are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            amount = Decimal(str(amount))
+            if amount <= 0:
+                return Response(
+                    {"error": "Amount must be greater than zero"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid amount format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Find PAMM by MT5 account ID
+            pamm = PAMMAccount.objects.get(mt5_account_id=account_id)
+            
+            # Find participant based on role
+            if role == 'INVESTOR':
+                if not user_id:
+                    return Response(
+                        {"error": "user_id is required for investor deposits"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                participant = PAMMParticipant.objects.get(
+                    pamm=pamm,
+                    user_id=user_id,
+                    role='INVESTOR'
+                )
+            else:
+                # Manager deposit
+                participant = PAMMParticipant.objects.get(
+                    pamm=pamm,
+                    role='MANAGER'
+                )
+            
+            # STEP 1: Perform MT5 deposit FIRST
+            try:
+                from adminPanel.mt5.services import MT5ManagerActions
+                mt5 = MT5ManagerActions()
+                mt5_success = mt5.deposit_funds(
+                    login_id=int(account_id),
+                    amount=float(amount),
+                    comment=comment or f'PAMM {role} deposit'
+                )
+                
+                if not mt5_success:
+                    return Response(
+                        {"error": "MT5 deposit failed. Database not updated."},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+                
+                logger.info(f"MT5 deposit successful for PAMM {pamm.name}")
+            except Exception as mt5_error:
+                logger.error(f"MT5 deposit failed for PAMM {pamm.name}: {str(mt5_error)}")
+                return Response(
+                    {"error": f"MT5 deposit failed: {str(mt5_error)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # STEP 2: MT5 succeeded, now update database
+            # Calculate units at current unit price
+            unit_price = pamm.unit_price()
+            units_added = amount / unit_price
+            
+            # Update participant units and totals
+            participant.units += units_added
+            participant.total_deposited += amount
+            participant.save()
+            
+            # Update PAMM totals
+            pamm.total_units += units_added
+            pamm.total_equity += amount
+            pamm.save()
+            
+            # Create completed transaction record
+            transaction = PAMMTransaction.objects.create(
+                pamm=pamm,
+                participant=participant,
+                transaction_type='MANAGER_DEPOSIT' if role == 'MANAGER' else 'INVESTOR_DEPOSIT',
+                amount=amount,
+                units_added=units_added,
+                units_removed=Decimal('0.00000000'),
+                unit_price_at_transaction=unit_price,
+                status='COMPLETED',
+                approved_by=request.user,
+                notes=comment or f'Direct admin deposit - {role}'
+            )
+            
+            logger.info(f"Direct PAMM deposit completed: {pamm.name}, {role}, ${amount}")
+            
+            return Response({
+                "success": True,
+                "message": f"PAMM {role.lower()} deposit completed",
+                "transaction_id": transaction.id,
+                "amount": str(amount),
+                "status": "completed",
+                "participant_balance": str(participant.current_balance()),
+                "participant_units": str(participant.units),
+                "pamm_equity": str(pamm.total_equity),
+                "unit_price": str(unit_price),
+                "units_added": str(units_added)
+            }, status=status.HTTP_201_CREATED)
+            
+        except PAMMAccount.DoesNotExist:
+            return Response(
+                {"error": f"PAMM account with MT5 ID {account_id} not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except PAMMParticipant.DoesNotExist:
+            return Response(
+                {"error": f"{role} participant not found for this PAMM"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error in direct PAMM deposit: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminDirectPAMMWithdrawView(APIView):
+    """Direct PAMM withdrawal (no approval workflow) - Admin only"""
+    permission_classes = [IsAuthenticated, IsAdminOrManager]
+    
+    @transaction.atomic
+    def post(self, request):
+        account_id = request.data.get('account_id')  # MT5 account ID
+        amount = request.data.get('amount')
+        comment = request.data.get('comment', '')
+        role = request.data.get('role', 'MANAGER')  # MANAGER or INVESTOR
+        user_id = request.data.get('user_id')  # Required for INVESTOR role
+        
+        if not account_id or not amount:
+            return Response(
+                {"error": "account_id and amount are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            amount = Decimal(str(amount))
+            if amount <= 0:
+                return Response(
+                    {"error": "Amount must be greater than zero"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid amount format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Find PAMM by MT5 account ID
+            pamm = PAMMAccount.objects.get(mt5_account_id=account_id)
+            
+            # Find participant based on role
+            if role == 'INVESTOR':
+                if not user_id:
+                    return Response(
+                        {"error": "user_id is required for investor withdrawals"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                participant = PAMMParticipant.objects.get(
+                    pamm=pamm,
+                    user_id=user_id,
+                    role='INVESTOR'
+                )
+            else:
+                # Manager withdrawal
+                participant = PAMMParticipant.objects.get(
+                    pamm=pamm,
+                    role='MANAGER'
+                )
+            
+            # Pre-check validations
+            unit_price = pamm.unit_price()
+            units_removed = amount / unit_price
+            
+            # Check if participant has sufficient units
+            if units_removed > participant.units:
+                return Response(
+                    {"error": f"Insufficient units. Available: {participant.units}, Required: {units_removed}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if PAMM has sufficient equity
+            if amount > pamm.total_equity:
+                return Response(
+                    {"error": f"Insufficient PAMM equity. Available: {pamm.total_equity}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # STEP 1: Perform MT5 withdrawal FIRST
+            try:
+                from adminPanel.mt5.services import MT5ManagerActions
+                mt5 = MT5ManagerActions()
+                mt5_success = mt5.withdraw_funds(
+                    login_id=int(account_id),
+                    amount=float(amount),
+                    comment=comment or f'PAMM {role} withdrawal'
+                )
+                
+                if not mt5_success:
+                    return Response(
+                        {"error": "MT5 withdrawal failed. Database not updated."},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+                
+                logger.info(f"MT5 withdrawal successful for PAMM {pamm.name}")
+            except Exception as mt5_error:
+                logger.error(f"MT5 withdrawal failed for PAMM {pamm.name}: {str(mt5_error)}")
+                return Response(
+                    {"error": f"MT5 withdrawal failed: {str(mt5_error)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # STEP 2: MT5 succeeded, now update database
+            # Update participant units and totals
+            participant.units -= units_removed
+            participant.total_withdrawn += amount
+            participant.save()
+            
+            # Update PAMM totals
+            pamm.total_units -= units_removed
+            pamm.total_equity -= amount
+            pamm.save()
+            
+            # Create completed transaction record
+            transaction = PAMMTransaction.objects.create(
+                pamm=pamm,
+                participant=participant,
+                transaction_type='MANAGER_WITHDRAW' if role == 'MANAGER' else 'INVESTOR_WITHDRAW',
+                amount=amount,
+                units_added=Decimal('0.00000000'),
+                units_removed=units_removed,
+                unit_price_at_transaction=unit_price,
+                status='COMPLETED',
+                approved_by=request.user,
+                notes=comment or f'Direct admin withdrawal - {role}'
+            )
+            
+            logger.info(f"Direct PAMM withdrawal completed: {pamm.name}, {role}, ${amount}")
+            
+            return Response({
+                "success": True,
+                "message": f"PAMM {role.lower()} withdrawal completed",
+                "transaction_id": transaction.id,
+                "amount": str(amount),
+                "status": "completed",
+                "participant_balance": str(participant.current_balance()),
+                "participant_units": str(participant.units),
+                "pamm_equity": str(pamm.total_equity),
+                "unit_price": str(unit_price),
+                "units_removed": str(units_removed)
+            }, status=status.HTTP_201_CREATED)
+            
+        except PAMMAccount.DoesNotExist:
+            return Response(
+                {"error": f"PAMM account with MT5 ID {account_id} not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except PAMMParticipant.DoesNotExist:
+            return Response(
+                {"error": f"{role} participant not found for this PAMM"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error in direct PAMM withdrawal: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminDirectPAMMCreditInView(APIView):
+    """Direct PAMM credit in (equity adjustment) - Admin only"""
+    permission_classes = [IsAuthenticated, IsAdminOrManager]
+    
+    @transaction.atomic
+    def post(self, request):
+        account_id = request.data.get('account_id')  # MT5 account ID
+        amount = request.data.get('amount')
+        comment = request.data.get('comment', 'Admin credit in - equity adjustment')
+        
+        if not account_id or not amount:
+            return Response(
+                {"error": "account_id and amount are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            amount = Decimal(str(amount))
+            if amount <= 0:
+                return Response(
+                    {"error": "Amount must be greater than zero"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid amount format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Find PAMM by MT5 account ID
+            pamm = PAMMAccount.objects.get(mt5_account_id=account_id)
+            old_equity = pamm.total_equity
+            
+            # **MT5 OPERATION FIRST** - Perform MT5 credit in BEFORE database update
+            try:
+                from adminPanel.mt5.services import MT5ManagerActions
+                mt5 = MT5ManagerActions()
+                mt5.deposit_funds(
+                    login_id=int(account_id),
+                    amount=float(amount),
+                    comment=comment
+                )
+                logger.info(f"MT5 credit in successful for PAMM {pamm.name}")
+            except Exception as mt5_error:
+                logger.error(f"MT5 credit in failed for PAMM {pamm.name}: {str(mt5_error)}")
+                return Response(
+                    {"error": f"MT5 credit in operation failed: {str(mt5_error)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # **DATABASE UPDATE SECOND** - Update PAMM equity (increases unit price, doesn't add units)
+            pamm.total_equity += amount
+            pamm.save()
+            
+            logger.info(f"Direct PAMM credit in: {pamm.name}, ${amount}, equity: ${old_equity} -> ${pamm.total_equity}")
+            
+            return Response({
+                "success": True,
+                "message": "PAMM credit in completed",
+                "amount": str(amount),
+                "status": "completed",
+                "old_equity": str(old_equity),
+                "new_equity": str(pamm.total_equity),
+                "unit_price": str(pamm.unit_price())
+            }, status=status.HTTP_201_CREATED)
+            
+        except PAMMAccount.DoesNotExist:
+            return Response(
+                {"error": f"PAMM account with MT5 ID {account_id} not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error in direct PAMM credit in: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminDirectPAMMCreditOutView(APIView):
+    """Direct PAMM credit out (equity adjustment) - Admin only"""
+    permission_classes = [IsAuthenticated, IsAdminOrManager]
+    
+    @transaction.atomic
+    def post(self, request):
+        account_id = request.data.get('account_id')  # MT5 account ID
+        amount = request.data.get('amount')
+        comment = request.data.get('comment', 'Admin credit out - equity adjustment')
+        
+        if not account_id or not amount:
+            return Response(
+                {"error": "account_id and amount are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            amount = Decimal(str(amount))
+            if amount <= 0:
+                return Response(
+                    {"error": "Amount must be greater than zero"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid amount format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Find PAMM by MT5 account ID
+            pamm = PAMMAccount.objects.get(mt5_account_id=account_id)
+            
+            # Check if PAMM has sufficient equity
+            if amount > pamm.total_equity:
+                return Response(
+                    {"error": f"Insufficient PAMM equity. Available: {pamm.total_equity}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            old_equity = pamm.total_equity
+            
+            # **MT5 OPERATION FIRST** - Perform MT5 credit out BEFORE database update
+            try:
+                from adminPanel.mt5.services import MT5ManagerActions
+                mt5 = MT5ManagerActions()
+                mt5.withdraw_funds(
+                    login_id=int(account_id),
+                    amount=float(amount),
+                    comment=comment
+                )
+                logger.info(f"MT5 credit out successful for PAMM {pamm.name}")
+            except Exception as mt5_error:
+                logger.error(f"MT5 credit out failed for PAMM {pamm.name}: {str(mt5_error)}")
+                return Response(
+                    {"error": f"MT5 credit out operation failed: {str(mt5_error)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # **DATABASE UPDATE SECOND** - Update PAMM equity (decreases unit price, doesn't remove units)
+            pamm.total_equity -= amount
+            pamm.save()
+            
+            logger.info(f"Direct PAMM credit out: {pamm.name}, ${amount}, equity: ${old_equity} -> ${pamm.total_equity}")
+            
+            return Response({
+                "success": True,
+                "message": "PAMM credit out completed",
+                "amount": str(amount),
+                "status": "completed",
+                "old_equity": str(old_equity),
+                "new_equity": str(pamm.total_equity),
+                "unit_price": str(pamm.unit_price())
+            }, status=status.HTTP_201_CREATED)
+            
+        except PAMMAccount.DoesNotExist:
+            return Response(
+                {"error": f"PAMM account with MT5 ID {account_id} not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error in direct PAMM credit out: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 

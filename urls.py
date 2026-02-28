@@ -234,7 +234,13 @@ from .views.pamm_admin_views import (
     AdminBulkApprovePAMMTransactionsView,
     AdminPAMMAccountsTableView,
     AdminPAMMInvestorsTableView,
+    # Direct operations (no approval workflow)
+    AdminDirectPAMMDepositView,
+    AdminDirectPAMMWithdrawView,
+    AdminDirectPAMMCreditInView,
+    AdminDirectPAMMCreditOutView,
 )
+
 
 
 logger = logging.getLogger(__name__)
@@ -805,6 +811,12 @@ urlpatterns += [
     # Equity & fees
     path('api/admin/pamm/update-equity/', AdminUpdatePAMMEquityView.as_view(), name='admin-pamm-update-equity'),
     path('api/admin/pamm/calculate-fee/', AdminCalculateManagerFeeView.as_view(), name='admin-pamm-calculate-fee'),
+    
+    # Direct PAMM operations (no approval workflow - like trading account operations)
+    path('api/admin/pamm/direct-deposit/', AdminDirectPAMMDepositView.as_view(), name='admin-pamm-direct-deposit'),
+    path('api/admin/pamm/direct-withdraw/', AdminDirectPAMMWithdrawView.as_view(), name='admin-pamm-direct-withdraw'),
+    path('api/admin/pamm/direct-credit-in/', AdminDirectPAMMCreditInView.as_view(), name='admin-pamm-direct-credit-in'),
+    path('api/admin/pamm/direct-credit-out/', AdminDirectPAMMCreditOutView.as_view(), name='admin-pamm-direct-credit-out'),
     
     # Admin Panel Tables (compatible with MAM panel structure)
     path('api/pam-accounts/', AdminPAMMAccountsTableView.as_view(), name='admin-pam-accounts-table'),
